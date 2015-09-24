@@ -1,21 +1,13 @@
-from nltk.corpus import wordnet as wn
-#from nltk.parse.dependencygraph import DependencyGraph
-from nltk import tree, treetransforms
-from nltk import Tree
-import networkx as nx
-
-from DependencyTree import make_tree  
-
-from collections import defaultdict
 import numpy as np
 import re
+import gzip
 import sys
+import cPickle
 reload(sys)
 sys.setdefaultencoding('utf8')
 
-import cPickle
 
-def get_W(word_vecs, k=300):
+def get_word_matrix(word_vecs, k=300):
     """
     Get word matrix. W[i] is the vector for word indexed by i
     """
@@ -31,8 +23,7 @@ def get_W(word_vecs, k=300):
     return W, word_idx_map
 
 
-def build_word2Vector__glove(fname, vocab):
-    import gzip
+def build_word2Vector_glove(fname, vocab):
     """
     Loads 300x1 word vecs from glove
     """
@@ -72,7 +63,6 @@ def build_word2Vector__glove(fname, vocab):
     return word_embedding_matrix, word_idx_map
 
 def build_word2Vector_mikolov(fname, vocab):
-    import gzip
     """
     Loads 300x1 word vecs from Google (Mikolov) word2vec
     """
@@ -120,128 +110,71 @@ def build_word2Vector_mikolov(fname, vocab):
         
     return word_embedding_matrix, word_idx_map
 
-
-def isSynonyms(T, H):
-    
-    lemmas_T = [str(lemma.name()) for ss in wn.synsets(T) for lemma in ss.lemmas()]
-    
-    lemmas_H = [str(lemma.name()) for ss in wn.synsets(H) for lemma in ss.lemmas()]
-    
-    c = list(set(lemmas_T).intersection(set(lemmas_H)))
-    
-    if T == H:
-        return True
-    elif len(c) > 0:
-        return True
-    elif H in lemmas_T:
-        return True
-    else:
-        return False
-    
-def isAntonyms(T, H):
-    
-    nega_T = [str(nega.name()) for ss in wn.synsets(T) for lemma in ss.lemmas() for nega in lemma.antonyms()]
-    if H in nega_T:
-        return True
-    else:
-        return False
-    
-def isHypernmys(T, H):
-    synsets_T = wn.synsets(T)
-    synsets_H = wn.synsets(H)
-    
-    for s_T in synsets_T:
-        for s_H in synsets_H:
             
-            if s_H in s_T.hyponyms():
-                return True
-                        
-            if s_T in [synset for path in s_H.hypernym_paths() for synset in path]:
-                return True            
-    return False    
+def isMatch(T, H, synonmys = False, wnentailment = False, antonmys = False, hypernmys = False
+    , hyponyms = False):
+    from nltk.corpus import wordnet as wn
     
-def isHyponmys(T, H):
-    synsets_T = wn.synsets(T)
-    synsets_H = wn.synsets(H)
-    
-    for s_T in synsets_T:
-        for s_H in synsets_H:
-                                   
-            if s_T in s_H.hyponyms():
-                return True
-            
-            if s_H in [synset for path in s_T.hypernym_paths() for synset in path]:
-                return True            
-    return False    
-
-def isWNEntailments(T, H):
-    synsets_T = wn.synsets(T)
-    synsets_H = wn.synsets(H)
-        
-    for s_T in synsets_T:
-        for s_H in synsets_H:
-            if s_H in s_T.entailments():
-                return True
-             
-    return False  
-
-def isMatch(T, H):
-    
+    isExactMatch = False
     if T == H:
-        return True
-    
-    """
-    else:
-        return False
-    """
-    
-    #return isSynonyms(T, H) or isHypernmys(T, H) or isHyponmys(T, H) or isWNEntailments(T, H) or isAntonyms(T, H)
-    #return isSynonyms(T, H) or isWNEntailments(T, H) or isAntonyms(T, H)
-    return isSynonyms(T, H) or isWNEntailments(T, H)
+        isExactMatch = True
 
-    """
-    Tree
+    synsets_T = wn.synsets(T)
+    synsets_H = wn.synsets(H)
     
-    Average (SICK.p.4MatchCond )valid performance 73.400000 %
-    Average test performance 70.095918 %
-    Best test performance 70.571429 %
-    
-    Average (3Hypon) valid performance 74.638333 %
-    Average test performance 72.453061 %
-    Best test performance 72.857143 %
-    
-    Average (3Hyper) valid performance 72.975000 %
-    Average test performance 70.663265 %
-    Best test performance 71.285714 %
-    
-    Average (SICK.p.5MatchCond) valid performance 70.275000 %
-    Average test performance 68.248980 %
-    Best test performance 69.122449 %
-    
-    Average (SICK.p.3AntMatchCond) valid performance 71.975000 %
-    Average test performance 71.277551 %
-    Best test performance 71.918367 %
-    
-    Average (SICK.p.2MatchCond) valid performance 74.825000 %
-    Average test performance 73.179592 %
-    Best test performance 73.877551 %
-    
-    Average (SICK.p.1MatchCond) valid performance 74.125000 %
-    Average test performance 73.400000 %
-    Best test performance 74.020408 %
-    *************************************
-    Graph
-    Average (SICK.p.1MatchCond) valid performance 76.325000 %
-    Average test performance 74.891837 %
-    Best test performance 75.122449 %
-    
-    Average (SICK.p.2MatchCond) valid performance 75.825000 %
-    Average test performance 74.928571 %
-    Best test performance 75.224490 %
+    if synonmys == True:
+        isSynonmy = False
 
-    """
+        lemmas_T = [str(lemma.name()) for ss in synsets_T for lemma in ss.lemmas()]
+        lemmas_H = [str(lemma.name()) for ss in synsets_H for lemma in ss.lemmas()]
+    
+        c = list(set(lemmas_T).intersection(set(lemmas_H)))
+    
+        if len(c) > 0 or H in lemmas_T:
+            isSynonmy = True
+        else:
+            isSynonmy = False
+
+    elif wnentailment == True:
+        isWNEntailments = False
+
+        for s_T in synsets_T:
+            for s_H in synsets_H:
+                if s_H in s_T.entailments():
+                    isWNEntailments = True 
+
+    elif antonmys == True:
+        isAntonyms = False
+        nega_T = [str(nega.name()) for ss in synsets_T for lemma in ss.lemmas() for nega in lemma.antonyms()]
+        if H in nega_T:
+            isAntonyms = True
+
+    elif hypernmys == True:
+        isHypernmys = False    
+        for s_T in synsets_T:
+            for s_H in synsets_H:
+                
+                if s_H in s_T.hyponyms():
+                    isHypernmys = True
+                            
+                if s_T in [synset for path in s_H.hypernym_paths() for synset in path]:
+                    isHypernmys = True           
+
+    elif hyponyms == True:
+        isHyponmys = False        
+        for s_T in synsets_T:
+            for s_H in synsets_H:
+                                       
+                if s_T in s_H.hyponyms():
+                    isHyponmys = True
+                
+                if s_H in [synset for path in s_T.hypernym_paths() for synset in path]:
+                    isHyponmys = True           
+    
+    return isExactMatch or isSynonmy or isWNEntailments or isAntonyms or isHypernmys or isHyponmys
 
 def mergeDepTreesIntoGraph(text_parse_output, hypo_parse_output):
+    from DependencyTree import make_tree 
     
     text_lemmas = text_parse_output["lemmas"]
     text_tokens = text_parse_output["tokens"]
@@ -366,7 +299,8 @@ def mergeDepTreesIntoGraph(text_parse_output, hypo_parse_output):
         gov = eles[1]+"-"+eles[2]
         dep = eles[3]+"-"+eles[4]
         G.add_edge(gov, dep, relation_name=rel)
-        
+    
+    import networkx as nx   
     isCyc = nx.is_directed_acyclic_graph(G)
 
 
@@ -379,53 +313,6 @@ def mergeDepTreesIntoGraph(text_parse_output, hypo_parse_output):
     graph = make_tree(relations)
     
     return sent.strip(), graph, isCyc
-
-def treeBinarization(tree, factor="right", horzMarkov=None, vertMarkov=0, childChar="|", parentChar="^"):
-    if horzMarkov is None: horzMarkov = 999
-    nodeList = [(tree, [tree.label()])]
-    while nodeList != []:
-        node, parent = nodeList.pop()
-        if isinstance(node,Tree):
-
-            # parent annotation
-            parentString = ""
-            originalNode = node.label()
-            if vertMarkov != 0 and node != tree and isinstance(node[0],Tree):
-                parentString = "%s<%s>" % (parentChar, "::".join(parent))
-                node.set_label(node.label() + parentString)
-                parent = [originalNode] + parent[:vertMarkov - 1]
-
-            # add children to the agenda before we mess with them
-            for child in node:
-                nodeList.append((child, parent))
-
-            # chomsky normal form factorization
-            if len(node) > 2:
-                childNodes = []
-                for child in node:
-                    if isinstance(child,Tree):
-                        childNodes.append(child.label())
-                    else:
-                        childNodes.append(child)
-                nodeCopy = node.copy()
-                node[0:] = [] # delete the children
-
-                curNode = node
-                numChildren = len(nodeCopy)
-                for i in range(1,numChildren - 1):
-                    if factor == "right":
-                        newHead = "%s%s<%s>%s" % (originalNode, childChar, "::".join(childNodes[i:min([i+horzMarkov,numChildren])]),parentString) # create new head
-                        newNode = Tree(newHead, [])
-                        curNode[0:] = [nodeCopy.pop(0), newNode]
-                    else:
-                        newHead = "%s%s<%s>%s" % (originalNode, childChar, "::".join(childNodes[max([numChildren-i-horzMarkov,0]):-i]),parentString)
-                        newNode = Tree(newHead, [])
-                        curNode[0:] = [newNode, nodeCopy.pop()]
-
-                    curNode = newNode
-
-                curNode[0:] = [child for child in nodeCopy]
-
 
 def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
    
@@ -535,7 +422,7 @@ def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
             relation2 = hypo_rel +"("+hypo_govToken+"-"+str(new_hypo_govIdx+1)+", "+hypo_depToken+"-"+str(new_hypo_depIdx+1)+")"
             dependencies.append(relation2)
                       
-                                                                
+    import networkx as nx                                                            
     G = nx.DiGraph()
     for pair in dependencies:    
         eles = re.match(r'(\w+)\((.*)-(\d+), (.*)-(\d+).*',pair).groups()
@@ -562,9 +449,6 @@ def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
     relations = [(ele[0], [(int(ele[2]), ele[1]),(int(ele[4]), ele[3])]) for ele in xs]
     depTree = make_tree(relations)
     
-    #depTree = tree.copy(deep=True)
-    #treeBinarization(tr)
-
     return sent.strip(), xs, depTree
                
 def clean_str(string):
@@ -589,7 +473,7 @@ def clean_str(string):
 
 
 def parse_data_StanfordParserWrapper(train_data_file, test_data_file):
-    from Stanford_Parser_Wrapper import *
+    from Stanford_Parser_Wrapper import Parser
     
     parser = Parser()
     
@@ -638,51 +522,6 @@ def parse_data_StanfordParserWrapper(train_data_file, test_data_file):
                              
     return result
 
-def parse_data_StanfordCoreNlpWrapper(train_data_file, test_data_file):
-    
-    from stanford_corenlp_pywrapper import sockwrap
-    p=sockwrap.SockWrap('nerparse',corenlp_jars=
-                        ["/home/peng/.m2/repository/edu/stanford/nlp/stanford-corenlp/3.4.1/stanford-corenlp-3.4.1.jar",
-                         "/home/peng/.m2/repository/edu/stanford/nlp/stanford-corenlp/3.4.1/stanford-corenlp-3.4.1-models.jar"])
-
-    
-    result = []
-    i = 0
-    with open(train_data_file, "rb") as f:
-        f.readline()
-        for line in f:   
-            print i
-            i += 1
-                        
-            instance = line.strip().split('\t')  
-            pair_id =  instance[0].strip().lower()
-            first_sentence = instance[1].strip().lower()
-            second_sentence = instance[2].strip().lower()
-            score = instance[3]
-            label = instance[4]
-            
-            text_parse_output = p.parse_doc(first_sentence)["sentences"][0]
-            hypo_parse_output = p.parse_doc(second_sentence)["sentences"][0]
-            result.append((text_parse_output, hypo_parse_output))
-                             
-                                   
-    with open(test_data_file, "rb") as f:
-        f.readline()
-        for line in f:    
-            print i
-            i += 1 
-            instance = line.strip().split('\t') 
-            pair_id =  instance[0].strip().lower()  
-            first_sentence = instance[1].strip().lower()
-            second_sentence = instance[2].strip().lower()
-            score = instance[3]
-            label = instance[4]
-                       
-            text_parse_output = p.parse_doc(first_sentence)["sentences"][0]
-            hypo_parse_output = p.parse_doc(second_sentence)["sentences"][0]
-            result.append((text_parse_output, hypo_parse_output))
-                             
-    return result
 
 def generateAlignments(text_parse_output, hypo_parse_output):
     
@@ -739,11 +578,12 @@ def generateAlignments(text_parse_output, hypo_parse_output):
     
 def build_data(train_data_file, test_data_file, parserDumpFile, cv=10):
     
-    parseddatas = cPickle.load(open(parserDumpFile,"rb"))
+    with open(parserDumpFile,"rb") as df:
+        parseddatas = cPickle.load(df)
         
     labelIdxMap = {}
     revs = []
-    vocab = defaultdict(float)
+    vocab = {}
     i = 0
     idx = 0
     with open(train_data_file, "rb") as f:
@@ -875,10 +715,10 @@ def build_data(train_data_file, test_data_file, parserDumpFile, cv=10):
             
     return revs, vocab
            
-if __name__=="__main__":
+if  __name__=="__main__":
     
     import argparse
-    parser = argparse.ArgumentParser(description='This is a script for text entailment')
+    parser = argparse.ArgumentParser(description='This is a script for prepprocessing datasets')
     
     parser.add_argument('-i', '--trainFilePath', 
                         help='the train File Path', 
@@ -888,7 +728,7 @@ if __name__=="__main__":
                         help='the test File Path', 
                         required = True)
     
-    parser.add_argument('-m', '--mode', 
+    parser.add_argument('-m', metavar ='--mode',
                         help='parsing or processing', 
                         required = True)
     
@@ -913,12 +753,12 @@ if __name__=="__main__":
                         required = False)
     
     args= parser.parse_args()
+
+    mode = args.m
        
     train_data_file = args.trainFilePath
     test_data_file = args.testFilePath
     parserDumpFile = args.parsedFileName
-    
-    mode = args.mode
     
     if mode == "parsing":
              
