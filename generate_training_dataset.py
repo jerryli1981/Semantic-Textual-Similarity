@@ -1,6 +1,7 @@
 import glob
 import re
 
+
 _DEBUG = False
 if _DEBUG == True:
 	import pdb
@@ -26,11 +27,16 @@ with open("train.txt", "wb") as f:
 			for gs, ip in zip(gss,inputs):
 
 				with open(gs, "rb") as f1, open(ip, "rb") as f2:
-
+                                        
 					for score, pair in zip(f1,f2):
 						
-						pair = clean_str(pair)
+                                                items = pair.split('\t')
+                                                first_sent = items[0]
+						first_sent = clean_str(first_sent)
+                                                second_sent = items[1]
+						second_sent = clean_str(second_sent)
+                                            
 						if pair not in pairSet:
-							f.write(pair.strip()+"\t"+score.strip()+"\n")
+							f.write(first_sent+"\t"+second_sent+"\t"+score.strip()+"\n")
 							pairSet.add(pair)	 
 	
