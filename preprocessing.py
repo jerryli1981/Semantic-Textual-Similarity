@@ -454,7 +454,7 @@ def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
 
 def parse_dataset(data_file_path):
     from stanford_parser_wrapper import Parser
-    
+    import traceback
     parser = Parser()
     result = []
 
@@ -462,14 +462,28 @@ def parse_dataset(data_file_path):
 
         for index, line in enumerate(f):
             if index % 1000 == 0:   
-                print i  
+                print index  
 
             instance = line.strip().split('\t')  
             first_sentence = instance[0].strip()
             second_sentence = instance[1].strip()
-
-            text_parse_output = parser.parseSentence(first_sentence)
-            hypo_parse_output = parser.parseSentence(second_sentence)
+	    #text_parse_output = parser.parseSentence(first_sentence)
+            #hypo_parse_output = parser.parseSentence(second_sentence)
+            	    
+	    try:
+                text_parse_output = parser.parseSentence(first_sentence)
+	    except:
+		print "first_sentence"
+		print first_sentence
+		traceback.print_exc()
+		#sys.exit()
+	    try:
+                hypo_parse_output = parser.parseSentence(second_sentence)
+	    except:
+		print "second_sentence"
+		print second_sentence
+		traceback.print_exc()
+		#sys.exit()
 
             result.append((text_parse_output, hypo_parse_output))
                              
@@ -700,8 +714,14 @@ if  __name__=="__main__":
     parser.add_argument('-g', metavar='--glove', 
                         help='the path of glove word2vector', 
                         required = False)
+    parser.add_argument('-d', metavar='--debug',
+			help='set debug mode, value is debug',
+			required = False)
     
     args= parser.parse_args()
+    if args.d == "debug":
+	import pdb
+	pdb.set_trace()
 
     mode = args.m
        
@@ -711,7 +731,7 @@ if  __name__=="__main__":
     if mode == "parsing":
         
         print "Begin to parsing dataset"
-        parserResult = parse_data(data_file_path)
+        parserResult = parse_dataset(data_file_path)
         print "Begin to dump parser results"
         cPickle.dump(parserResult, open(parserDumpFile, "wb"))
 
