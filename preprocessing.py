@@ -451,73 +451,26 @@ def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
     
     return sent.strip(), xs, depTree
                
-def clean_str(string):
-    """
-    Tokenization/string cleaning for all datasets except for SST.
-    Every dataset is lower cased except for TREC
-    """
-    string = re.sub(r"[^A-Za-z0-9(),!?\'\`]", " ", string)     
-    string = re.sub(r"\'s", " \'s", string) 
-    string = re.sub(r"\'ve", " \'ve", string) 
-    string = re.sub(r"n\'t", " n\'t", string) 
-    string = re.sub(r"\'re", " \'re", string) 
-    string = re.sub(r"\'d", " \'d", string) 
-    string = re.sub(r"\'ll", " \'ll", string) 
-    string = re.sub(r",", " , ", string) 
-    string = re.sub(r"!", " ! ", string) 
-    string = re.sub(r"\(", " \( ", string) 
-    string = re.sub(r"\)", " \) ", string) 
-    string = re.sub(r"\?", " \? ", string) 
-    string = re.sub(r"\s{2,}", " ", string)    
-    return string.strip()
 
-
-def parse_data_StanfordParserWrapper(train_data_file, test_data_file):
+def parse_dataset(data_file_path):
     from stanford_parser_wrapper import Parser
     
     parser = Parser()
-    
-    
     result = []
-    i = 0
-    with open(train_data_file, "rb") as f:
-        f.readline()
-        for line in f:   
-            print i
-            i += 1   
+
+    with open(data_file_path, "rb") as f:
+
+        for index, line in enumerate(f):
+            if index % 1000 == 0:   
+                print i  
 
             instance = line.strip().split('\t')  
-            pair_id =  instance[0].strip().lower()
-            first_sentence = instance[1].strip().lower()
-            second_sentence = instance[2].strip().lower()
-
-            score = instance[3]
-            label = instance[4]
-            
+            first_sentence = instance[0].strip()
+            second_sentence = instance[1].strip()
 
             text_parse_output = parser.parseSentence(first_sentence)
             hypo_parse_output = parser.parseSentence(second_sentence)
 
-            result.append((text_parse_output, hypo_parse_output))
-                             
-                                   
-    with open(test_data_file, "rb") as f:
-        f.readline()
-        for line in f:    
-            print i
-            i += 1 
-
-            instance = line.strip().split('\t') 
-            pair_id =  instance[0].strip().lower()  
-            first_sentence = instance[1].strip().lower()
-            second_sentence = instance[2].strip().lower()
-
-            score = instance[3]
-            label = instance[4]
-                       
-
-            text_parse_output = parser.parseSentence(first_sentence)
-            hypo_parse_output = parser.parseSentence(second_sentence)
             result.append((text_parse_output, hypo_parse_output))
                              
     return result
@@ -720,12 +673,8 @@ if  __name__=="__main__":
     import argparse
     parser = argparse.ArgumentParser(description='This is a script for prepprocessing datasets')
     
-    parser.add_argument('-i', metavar='--trainFilePath', 
-			help='the train File Path', 
-                        required = True)
-    
-    parser.add_argument('-j', metavar='--testFilePath', 
-                        help='the test File Path', 
+    parser.add_argument('-i', metavar='--inputFilePath', 
+            			help='input file path', 
                         required = True)
     
     parser.add_argument('-m', metavar ='--mode',
@@ -756,14 +705,13 @@ if  __name__=="__main__":
 
     mode = args.m
        
-    train_data_file = args.i
-    test_data_file = args.j
+    data_file_path = args.i
     parserDumpFile = args.p
     
     if mode == "parsing":
-             
+        
         print "Begin to parsing dataset"
-        parserResult = parse_data_StanfordParserWrapper(train_data_file, test_data_file)
+        parserResult = parse_data(data_file_path)
         print "Begin to dump parser results"
         cPickle.dump(parserResult, open(parserDumpFile, "wb"))
 
