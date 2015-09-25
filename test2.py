@@ -1,2 +1,2 @@
 def xx():
-	print "shit"
+    print "shit"
