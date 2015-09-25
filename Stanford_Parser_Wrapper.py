@@ -117,10 +117,4 @@ class Parser:
         return datum
           
         
-           
-if __name__ == '__main__':
-    
-    parser = Parser()
-    #parser.parseSentence("A group of kids is playing in a yard and an old man is standing in the background")
-    parser.parseSentence("A group of boys in a yard is playing and a man is standing in the background")
-
+     
