@@ -720,11 +720,11 @@ if  __name__=="__main__":
     import argparse
     parser = argparse.ArgumentParser(description='This is a script for prepprocessing datasets')
     
-    parser.add_argument('-i', '--trainFilePath', 
-                        help='the train File Path', 
+    parser.add_argument('-i', metavar='--trainFilePath', 
+			help='the train File Path', 
                         required = True)
     
-    parser.add_argument('-j', '--testFilePath', 
+    parser.add_argument('-j', metavar='--testFilePath', 
                         help='the test File Path', 
                         required = True)
     
@@ -732,23 +732,23 @@ if  __name__=="__main__":
                         help='parsing or processing', 
                         required = True)
     
-    parser.add_argument('-p', '--parsedFileName', 
-                        help='parsing or processing', 
+    parser.add_argument('-p', metavar='--parsedFileName', 
+                        help='parsed file name', 
                         required = True)
     
-    parser.add_argument('-o', '--outputFileName', 
+    parser.add_argument('-o', metavar='--outputFileName', 
                         help='the output file name', 
                         required = False)
     
-    parser.add_argument('-c', '--crossvalidation', 
+    parser.add_argument('-c', metavar='--crossvalidation', 
                         help='the number of folds for cross validation', 
                         required = False)
     
-    parser.add_argument('-k', '--mikolov', 
+    parser.add_argument('-k', metavar='--mikolov', 
                         help='the path of mikolov word2vector', 
                         required = False)
     
-    parser.add_argument('-g', '--glove', 
+    parser.add_argument('-g', metavar='--glove', 
                         help='the path of glove word2vector', 
                         required = False)
     
@@ -756,9 +756,9 @@ if  __name__=="__main__":
 
     mode = args.m
        
-    train_data_file = args.trainFilePath
-    test_data_file = args.testFilePath
-    parserDumpFile = args.parsedFileName
+    train_data_file = args.i
+    test_data_file = args.j
+    parserDumpFile = args.p
     
     if mode == "parsing":
              
@@ -769,11 +769,10 @@ if  __name__=="__main__":
 
     elif mode == "processing":
         
-        if args.outputFileName == None:
+        datasetName = args.o
+        if datasetName == None:
             print "output file name can't be None"
             sys.exit() 
-        
-        datasetName = args.outputFileName
         
         if args.crossvalidation == None:
             print "crossvalidation can't be None"
@@ -781,12 +780,12 @@ if  __name__=="__main__":
 
         num_folds = int(args.crossvalidation)
         
-        if args.mikolov == None and args.glove == None:
+        if args.k == None and args.g == None:
             print "word2vec can't be None"
             sys.exit()
         
-        w2v_file_m = args.mikolov
-        w2v_file_g = args.glove
+        w2v_file_m = args.k
+        w2v_file_g = args.g
         
         
         print "Loading data...",        
