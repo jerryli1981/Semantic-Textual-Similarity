@@ -19,5 +19,5 @@ with open("train.txt", "wb") as f:
 			with open(gs, "rb") as f1, open(ip, "rb") as f2:
 
 				for score, pair in zip(f1,f2):
-					f.write(score.strip()+"\t"+pair.strip()+"\n")	 
+					f.write(pair.strip()+"\t"+score.strip()+"\n")	 
 
