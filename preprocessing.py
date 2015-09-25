@@ -467,24 +467,20 @@ def parse_dataset(data_file_path):
             instance = line.strip().split('\t')  
             first_sentence = instance[0].strip()
             second_sentence = instance[1].strip()
-	    #text_parse_output = parser.parseSentence(first_sentence)
-            #hypo_parse_output = parser.parseSentence(second_sentence)
             	    
-	    try:
+            try:
                 text_parse_output = parser.parseSentence(first_sentence)
-	    except:
-		print "first_sentence"
-		print first_sentence
-		traceback.print_exc()
-		#sys.exit()
-	    try:
+            except:
+                print "first_sentence"
+                print first_sentence
+                traceback.print_exc()
+            try:
                 hypo_parse_output = parser.parseSentence(second_sentence)
-	    except:
-		print "second_sentence"
-		print second_sentence
-		traceback.print_exc()
-		#sys.exit()
-
+            except:
+                print "second_sentence"
+                print second_sentence
+                traceback.print_exc()
+                
             result.append((text_parse_output, hypo_parse_output))
                              
     return result
