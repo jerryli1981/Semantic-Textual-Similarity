@@ -9,7 +9,7 @@ if _DEBUG == True:
 folders = ['sts2012', 'sts2013', 'sts2014']
 
 def clean_str(string):
-	string = re.sub(r"[^A-Za-z0-9(),!?\'\`]", " ", string)
+    string = re.sub(r"[^A-Za-z0-9(),!?\'\`]", " ", string)
 	string = re.sub(r"\(.*?\)", "", string)
 	string = re.sub(r"\s{2,}", " ", string)       
 	return string.strip()
