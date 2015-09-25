@@ -1,2 +1,3 @@
 def clean_str():
-	print "done"
+
+    print "done"
