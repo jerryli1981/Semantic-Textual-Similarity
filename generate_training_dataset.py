@@ -29,6 +29,11 @@ with open("train.txt", "wb") as f:
                     first_sent = clean_str(first_sent)
                     second_sent = items[1]
                     second_sent = clean_str(second_sent)
+                    
+                    if len(first_sent) ==0 or len(second_sent) ==0:
+                        continue
+                    if " " not in first_sent or " " not in second_sent:
+                        continue
 
                     if pair not in pairSet:
                         f.write(first_sent+"\t"+second_sent+"\t"+score.strip()+"\n")
