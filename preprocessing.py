@@ -473,7 +473,7 @@ def clean_str(string):
 
 
 def parse_data_StanfordParserWrapper(train_data_file, test_data_file):
-    from Stanford_Parser_Wrapper import Parser
+    from stanford_parser_wrapper import Parser
     
     parser = Parser()
     
