@@ -1,2 +1,0 @@
-def xx():
-    print "shit"
