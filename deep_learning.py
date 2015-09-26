@@ -469,7 +469,8 @@ if __name__=="__main__":
         print "features is dumped"    
         
     elif mode=="training":
-            
+        
+        from rnn import 
         if args.c == None:
             print "crossvalidation can't be None"
             sys.exit()
