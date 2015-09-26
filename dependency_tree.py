@@ -1,5 +1,3 @@
-import os
-
 # - an individual node contains the word associated with the node along with 
 #   pointers to its kids and parents. 
 class node:
