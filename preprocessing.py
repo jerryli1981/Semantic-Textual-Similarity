@@ -3,9 +3,12 @@ import re
 import gzip
 import sys
 import cPickle
+from collections import defaultdict
 reload(sys)
 sys.setdefaultencoding('utf8')
 
+from dependency_tree import make_tree 
+import networkx as nx
 
 def get_word_matrix(word_vecs, k=300):
     """
@@ -111,70 +114,73 @@ def build_word2Vector_mikolov(fname, vocab):
     return word_embedding_matrix, word_idx_map
 
             
-def isMatch(T, H, synonmys = False, wnentailment = False, antonmys = False, hypernmys = False
-    , hyponyms = False):
+def isMatch(T, H, synonym = False, entail = False, antonym = False, hypernym = False
+    , hyponym = False):
     from nltk.corpus import wordnet as wn
     
-    isExactMatch = False
+    is_exact_match = False
     if T == H:
-        isExactMatch = True
+        is_exact_match = True
 
     synsets_T = wn.synsets(T)
     synsets_H = wn.synsets(H)
-    
-    if synonmys == True:
-        isSynonmy = False
 
+    is_synonym = False
+    is_entail = False
+    is_antonmy = False
+    is_hypernym = False
+    is_hyponym = False
+    
+    if synonym == True:
+        
         lemmas_T = [str(lemma.name()) for ss in synsets_T for lemma in ss.lemmas()]
         lemmas_H = [str(lemma.name()) for ss in synsets_H for lemma in ss.lemmas()]
     
         c = list(set(lemmas_T).intersection(set(lemmas_H)))
     
         if len(c) > 0 or H in lemmas_T:
-            isSynonmy = True
+            is_synonym = True
         else:
-            isSynonmy = False
+            is_synonym = False
 
-    elif wnentailment == True:
-        isWNEntailments = False
-
+    elif entail == True:
+        
         for s_T in synsets_T:
             for s_H in synsets_H:
                 if s_H in s_T.entailments():
-                    isWNEntailments = True 
+                    is_entail = True 
 
-    elif antonmys == True:
-        isAntonyms = False
+    elif antonym == True:
+       
         nega_T = [str(nega.name()) for ss in synsets_T for lemma in ss.lemmas() for nega in lemma.antonyms()]
         if H in nega_T:
-            isAntonyms = True
+            is_antonmy = True
 
-    elif hypernmys == True:
-        isHypernmys = False    
+    elif hypernym == True:
+            
         for s_T in synsets_T:
             for s_H in synsets_H:
                 
                 if s_H in s_T.hyponyms():
-                    isHypernmys = True
+                    is_hypernym = True
                             
                 if s_T in [synset for path in s_H.hypernym_paths() for synset in path]:
-                    isHypernmys = True           
+                    is_hypernym = True           
 
-    elif hyponyms == True:
-        isHyponmys = False        
+    elif hyponym == True:
+      
         for s_T in synsets_T:
             for s_H in synsets_H:
                                        
                 if s_T in s_H.hyponyms():
-                    isHyponmys = True
+                    is_hyponym = True
                 
                 if s_H in [synset for path in s_T.hypernym_paths() for synset in path]:
-                    isHyponmys = True           
+                    is_hyponym = True           
     
-    return isExactMatch or isSynonmy or isWNEntailments or isAntonyms or isHypernmys or isHyponmys
+    return is_exact_match or is_synonym or is_entail or is_antonmy or is_hypernym or is_hyponym
 
 def mergeDepTreesIntoGraph(text_parse_output, hypo_parse_output):
-    from DependencyTree import make_tree 
     
     text_lemmas = text_parse_output["lemmas"]
     text_tokens = text_parse_output["tokens"]
@@ -290,8 +296,7 @@ def mergeDepTreesIntoGraph(text_parse_output, hypo_parse_output):
             new_hypo_depIdx = len(text_tokens)-1
             relation2 = hypo_rel +"("+hypo_govToken+"-"+str(new_hypo_govIdx+1)+", "+hypo_depToken+"-"+str(new_hypo_depIdx+1)+")"
             dependencies.append(relation2)
-                      
-                      
+                                        
     G = nx.DiGraph()
     for pair in dependencies:    
         eles = re.match(r'(\w+)\((.*)-(\d+), (.*)-(\d+).*',pair).groups()
@@ -300,9 +305,7 @@ def mergeDepTreesIntoGraph(text_parse_output, hypo_parse_output):
         dep = eles[3]+"-"+eles[4]
         G.add_edge(gov, dep, relation_name=rel)
     
-    import networkx as nx   
     isCyc = nx.is_directed_acyclic_graph(G)
-
 
     linear = list(nx.dfs_preorder_nodes(G, "ROOT-0"))
     toks = [re.sub(r'-(\d+)', "", ele) for ele in linear if ele != "ROOT-0"]
@@ -421,8 +424,7 @@ def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
             new_hypo_depIdx = len(text_tokens)-1
             relation2 = hypo_rel +"("+hypo_govToken+"-"+str(new_hypo_govIdx+1)+", "+hypo_depToken+"-"+str(new_hypo_depIdx+1)+")"
             dependencies.append(relation2)
-                      
-    import networkx as nx                                                            
+                                                                                  
     G = nx.DiGraph()
     for pair in dependencies:    
         eles = re.match(r'(\w+)\((.*)-(\d+), (.*)-(\d+).*',pair).groups()
@@ -451,41 +453,6 @@ def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
     
     return sent.strip(), xs, depTree
                
-
-def parse_dataset(data_file_path):
-    from stanford_parser_wrapper import Parser
-    import traceback
-    parser = Parser()
-    result = []
-
-    with open(data_file_path, "rb") as f:
-
-        for index, line in enumerate(f):
-            if index % 1000 == 0:   
-                print index  
-
-            instance = line.strip().split('\t')  
-            first_sentence = instance[0].strip()
-            second_sentence = instance[1].strip()
-            	    
-            try:
-                text_parse_output = parser.parseSentence(first_sentence)
-            except:
-                print "first_sentence"
-                print first_sentence
-                traceback.print_exc()
-            try:
-                hypo_parse_output = parser.parseSentence(second_sentence)
-            except:
-                print "second_sentence"
-                print second_sentence
-                traceback.print_exc()
-                
-            result.append((text_parse_output, hypo_parse_output))
-                             
-    return result
-
-
 def generateAlignments(text_parse_output, hypo_parse_output):
     
     text_lemmas = text_parse_output["lemmas"]
@@ -539,65 +506,65 @@ def generateAlignments(text_parse_output, hypo_parse_output):
     return  candidate_alignment_pairs
 
     
-def build_data(train_data_file, test_data_file, parserDumpFile, cv=10):
-    
-    with open(parserDumpFile,"rb") as df:
-        parseddatas = cPickle.load(df)
-        
-    labelIdxMap = {}
+def build_training_data(data_file_path, cv=10):
+    from stanford_parser_wrapper import Parser
+    import traceback
+    parser = Parser()    
     revs = []
-    vocab = {}
-    i = 0
-    idx = 0
-    with open(train_data_file, "rb") as f:
-        f.readline()
-        for line in f:   
-            print i
-            i += 1
-                                        
+    vocab = defaultdict(float)
+
+    with open(data_file_path, "rb") as f:
+        
+        for index, line in enumerate(f):
+            if index % 100 == 0:   
+                print index  
+
             instance = line.strip().split('\t')  
-            first_sentence = instance[1].strip().lower()
-            second_sentence = instance[2].strip().lower()
-            pair_id =  instance[0].strip().lower()
-            score = instance[3]
-            label = instance[4]
-            
-            if label not in labelIdxMap:
-                labelIdxMap[label] = idx
-                idx += 1
-            
-            labelIdx = labelIdxMap[label]
-                       
-            text_parse_output, hypo_parse_output = parseddatas[i-1] 
-            
-            alignments = generateAlignments(text_parse_output, hypo_parse_output)
+            first_sentence = instance[0].strip()
+            second_sentence = instance[1].strip()
+                    
+            try:
+                first_parse_output = parser.parseSentence(first_sentence)
+            except:
+                print "first_sentence can't be parsing"
+                #print first_sentence
+                #traceback.print_exc()
+                continue
+            try:
+                second_parse_output = parser.parseSentence(second_sentence)
+            except:
+                print "second_sentence can't be parsing"
+                #print second_sentence
+                #traceback.print_exc()
+                continue
+                                        
+            score = instance[2].strip()
+                    
+            alignments = generateAlignments(first_parse_output, second_parse_output)
             
             try:
-                linearizedSentByGraph, graph, isCyc = mergeDepTreesIntoGraph(text_parse_output, 
-                                                                         hypo_parse_output) 
+                linearizedSentByGraph, graph, isCyc = mergeDepTreesIntoGraph(first_parse_output, 
+                                                                         second_parse_output) 
             except:
-                print "Graph linearization has problem"
+                print "merge dependency trees into graph has problem"
                 continue
             
             if isCyc == False:
-                print "graph contain cycle"
+                print "graph contain cycle"                
+                continue                   
+            try:     
+                linearizedSentByTree, xs, tree = mergeDepTreesIntoTree(first_parse_output, second_parse_output)
+            except:
+                print "merge dependency trees into tree has problem"
+                continue
+                                          
+            for word in first_parse_output["tokens"]:
+                vocab[word.lower()] += 1
                 
-                continue                    
-            linearizedSentByTree, xs, tree = mergeDepTreesIntoTree(text_parse_output, hypo_parse_output)
+            for word in second_parse_output["tokens"]:
+                vocab[word.lower()] += 1
 
-                                
-            text_tokens = text_parse_output["tokens"]          
-            for word in text_tokens:
-                vocab[word] += 1
-                
-            hypo_tokens = hypo_parse_output["tokens"]
-            for word in hypo_tokens:
-                vocab[word] += 1
-                
-                              
-            datum  = {"id":pair_id,
-                      "score":score, 
-                      "label":labelIdx,
+            datum  = {"score":score, 
                       "text": first_sentence+"\t"+second_sentence, 
                       "linearbyTree": linearizedSentByTree,   
                       "linearbyGraph": linearizedSentByGraph, 
@@ -612,70 +579,6 @@ def build_data(train_data_file, test_data_file, parserDumpFile, cv=10):
                       "split": np.random.randint(0,cv)}
             revs.append(datum)
             
-              
-    with open(test_data_file, "rb") as f:
-        f.readline()
-        for line in f:    
-            print i
-            i += 1 
-            
-            instance = line.strip().split('\t')  
-            first_sentence = instance[1].strip().lower()
-            second_sentence = instance[2].strip().lower()
-            pair_id =  instance[0].strip().lower()
-            score = instance[3]
-            label = instance[4]
-            
-            if label not in labelIdxMap:
-                labelIdxMap[label] = idx
-                idx += 1
-            
-                
-            labelIdx = labelIdxMap[label]
-            
-            text_parse_output, hypo_parse_output = parseddatas[i-1]
-            
-            alignments = generateAlignments(text_parse_output, hypo_parse_output)
-            
-            try:
-                linearizedSentByGraph, graph, isCyc = mergeDepTreesIntoGraph(text_parse_output, 
-                                                                         hypo_parse_output) 
-            except:
-                print "Graph linearization has problem"
-                continue
-
-            
-            if isCyc == False:
-                print "XXXX "+ pair_id
-                continue                       
-            linearizedSentByTree, xs, tree = mergeDepTreesIntoTree(text_parse_output, hypo_parse_output)
-            
-            
-            text_tokens = text_parse_output["tokens"]          
-            for word in text_tokens:
-                vocab[word] += 1
-                
-            hypo_tokens = hypo_parse_output["tokens"]
-            for word in hypo_tokens:
-                vocab[word] += 1
-              
-            datum  = {"id":pair_id,
-                      "score":score, 
-                      "label":labelIdx,
-                      "text": first_sentence+"\t"+second_sentence, 
-                      "linearbyTree": linearizedSentByTree,   
-                      "linearbyGraph": linearizedSentByGraph,   
-                      "tree": tree, 
-                      "graph": graph, 
-                      "deps": xs, 
-                      "alignments": alignments,                      
-                      "num_words_merged_Tree": len(linearizedSentByTree.split()),
-                      "num_words_merged_Graph": len(linearizedSentByGraph.split()),
-                      "num_words_single": max(len(first_sentence.split()),len(second_sentence.split())),
-                      "num_subtrees": len(list(tree.get_nodes())),
-                      "split": -1}
-            revs.append(datum)
-            
     return revs, vocab
            
 if  __name__=="__main__":
@@ -688,16 +591,12 @@ if  __name__=="__main__":
                         required = True)
     
     parser.add_argument('-m', metavar ='--mode',
-                        help='parsing or processing', 
-                        required = True)
-    
-    parser.add_argument('-p', metavar='--parsedFileName', 
-                        help='parsed file name', 
+                        help='training or testing', 
                         required = True)
     
     parser.add_argument('-o', metavar='--outputFileName', 
                         help='the output file name', 
-                        required = False)
+                        required = True)
     
     parser.add_argument('-c', metavar='--crossvalidation', 
                         help='the number of folds for cross validation', 
@@ -711,49 +610,33 @@ if  __name__=="__main__":
                         help='the path of glove word2vector', 
                         required = False)
     parser.add_argument('-d', metavar='--debug',
-			help='set debug mode, value is debug',
-			required = False)
+                        help='set debug mode, value is debug',
+                        required = False)
     
     args= parser.parse_args()
     if args.d == "debug":
 	import pdb
 	pdb.set_trace()
 
-    mode = args.m
-       
-    data_file_path = args.i
-    parserDumpFile = args.p
-    
-    if mode == "parsing":
-        
-        print "Begin to parsing dataset"
-        parserResult = parse_dataset(data_file_path)
-        print "Begin to dump parser results"
-        cPickle.dump(parserResult, open(parserDumpFile, "wb"))
+    if args.k == None and args.g == None:
+        print "word2vec can't be None"
+        sys.exit()
 
-    elif mode == "processing":
-        
-        datasetName = args.o
-        if datasetName == None:
-            print "output file name can't be None"
-            sys.exit() 
-        
-        if args.crossvalidation == None:
+    w2v_file_m = args.k
+    w2v_file_g = args.g
+
+    data_file_path = args.i
+    output_file_path = args.o
+
+    if args.m == "training":
+        if args.c == None:
             print "crossvalidation can't be None"
             sys.exit()
 
-        num_folds = int(args.crossvalidation)
-        
-        if args.k == None and args.g == None:
-            print "word2vec can't be None"
-            sys.exit()
-        
-        w2v_file_m = args.k
-        w2v_file_g = args.g
-        
+        num_folds = int(args.c)
         
         print "Loading data...",        
-        revs, vocab = build_data(train_data_file, test_data_file, parserDumpFile, cv=num_folds)
+        revs, vocab = build_training_data(data_file_path, cv=num_folds)
         print "data loaded!"
         
         print "number of instances: " + str(len(revs))
@@ -766,6 +649,6 @@ if  __name__=="__main__":
             word_embedding_matrix, word_idx_map = build_word2Vector_glove(w2v_file_g, vocab) 
         print "word2vec is builded"
     
-        cPickle.dump([revs, word_embedding_matrix, word_idx_map, vocab], open(datasetName, "wb"))
+        cPickle.dump([revs, word_embedding_matrix, word_idx_map, vocab], open(output_file_path, "wb"))
         print "datasets created!"
     
