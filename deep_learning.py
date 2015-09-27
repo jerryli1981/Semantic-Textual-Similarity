@@ -1,6 +1,7 @@
 import cPickle
 import numpy as np
 import sys
+import re
 from collections import defaultdict
 
 from dependency_tree import make_tree 
@@ -365,7 +366,9 @@ def build_mergetree_features(revs, word_idx_map):
                 
     rel_dict = defaultdict(float) 
 
-    for datum in revs:   
+    for index, datum in enumerate(revs):
+        if index % 100 == 0:
+            print index   
 
         first_parse_output = datum["parse"][0] 
         second_parse_output = datum["parse"][1]   
@@ -433,7 +436,7 @@ if __name__=="__main__":
                         required = False)
 
     args= parser.parse_args()
-    if args.d = 'debug':
+    if args.d == 'debug':
         import pdb
         pdb.set_trace()
 
@@ -446,14 +449,7 @@ if __name__=="__main__":
         if feature_engineering_type == None:
             print "feature_engineering_type can't be None"
             sys.exit()
-            
-            
-        if args.s == None:
-            print "Dimension can't be None"
-            sys.exit()
-            
-        dimension = int(args.dimension) 
-      
+             
         print "loading data...",
         with open(fn,'rb') as f:    
             x = cPickle.load(f)
@@ -470,7 +466,7 @@ if __name__=="__main__":
         
     elif mode=="training":
         
-        from rnn import 
+        from rnn import evaluate_DT_RNN
         if args.c == None:
             print "crossvalidation can't be None"
             sys.exit()
