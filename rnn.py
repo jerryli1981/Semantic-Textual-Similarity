@@ -105,12 +105,11 @@ def forward_prop(params, tree, d, n_labels, training=True):
             if n_labels == 3:
                 h = softmax(Ws, curr.p_norm)
     
-                y = tree.label
-                if y == 0:
+                if tree.label == 0:
                     Y = np.array([1,0,0], int).reshape(3,1)
-                elif y == 1:
+                elif tree.label == 1:
                     Y = np.array([0,1,0], int).reshape(3,1)
-                elif y ==2:
+                elif tree.label == 2:
                     Y = np.array([0,0,1], int).reshape(3,1)
                 
                 curr.ans_delta = Ws.dot(h-Y)
@@ -118,12 +117,12 @@ def forward_prop(params, tree, d, n_labels, training=True):
                 h = h.reshape(3)
                 h = np.log(h)
                 cee = 0.
-                for y in range(3):
-                    if y == 0:
+                for x in range(3):
+                    if x == 0:
                         Y = np.array([1,0,0], int).reshape(3)
-                    elif y == 1:
+                    elif x == 1:
                         Y = np.array([0,1,0], int).reshape(3)
-                    elif y ==2:
+                    elif x ==2:
                         Y = np.array([0,0,1], int).reshape(3)
                         
                     cee +=h.dot(Y) 
@@ -133,10 +132,9 @@ def forward_prop(params, tree, d, n_labels, training=True):
             elif n_labels == 2:
                 h = softmax(Ws, curr.p_norm)
     
-                y = tree.label
-                if y == 0:
+                if tree.label == 0:
                     Y = np.array([1,0], int).reshape(2,1)
-                elif y == 1:
+                elif tree.label == 1:
                     Y = np.array([0,1], int).reshape(2,1)
                 
                 curr.ans_delta = Ws.dot(h-Y)
@@ -144,10 +142,10 @@ def forward_prop(params, tree, d, n_labels, training=True):
                 h = h.reshape(2)
                 h = np.log(h)
                 cee = 0.
-                for y in range(2):
-                    if y == 0:
+                for x in range(2):
+                    if x == 0:
                         Y = np.array([1,0], int).reshape(2)
-                    elif y == 1:
+                    elif x == 1:
                         Y = np.array([0,1], int).reshape(2)
                         
                     cee +=h.dot(Y) 
@@ -155,38 +153,41 @@ def forward_prop(params, tree, d, n_labels, training=True):
                 curr.ans_error = -cee
 
             elif n_labels == 5:
+
                 h = softmax(Ws, curr.p_norm)
-    
-                y = tree.label
-                if y == 0:
-                    Y = np.array([1,0,0,0,0], int).reshape(5,1)
-                elif y == 1:
-                    Y = np.array([0,1,0,0,0], int).reshape(5,1)
-                elif y == 2:
-                    Y = np.array([0,0,1,0,0], int).reshape(5,1)
-                elif y == 3:
-                    Y = np.array([0,0,0,1,0], int).reshape(5,1)
-                elif y == 4:
-                    Y = np.array([0,0,0,0,1], int).reshape(5,1)
+                #print tree.label, type(tree.label)
+                if tree.label == 0:
+                    m = np.array([1,0,0,0,0], int).reshape(5,1)
+                elif tree.label == 1:
+                    m = np.array([0,1,0,0,0], int).reshape(5,1)
+                elif tree.label == 2:
+                    m = np.array([0,0,1,0,0], int).reshape(5,1)
+                elif tree.label == 3:
+                    m = np.array([0,0,0,1,0], int).reshape(5,1)
+                elif tree.label == 4:
+                    m = np.array([0,0,0,0,1], int).reshape(5,1)
+                else:
+                    print "different tree label is", tree.label, type(tree.label)
+                    sys.exit()
                 
-                curr.ans_delta = Ws.dot(h-Y)
+                curr.ans_delta = Ws.dot(h-m)
                 
                 h = h.reshape(5)
                 h = np.log(h)
                 cee = 0.
-                for y in range(5):
-                    if y == 0:
-                        Y = np.array([1,0,0,0,0], int).reshape(5,1)
-                    elif y == 1:
-                        Y = np.array([0,1,0,0,0], int).reshape(5,1)
-                    elif y == 2:
-                        Y = np.array([0,0,1,0,0], int).reshape(5,1)
-                    elif y == 3:
-                        Y = np.array([0,0,0,1,0], int).reshape(5,1)
-                    elif y == 4:
-                        Y = np.array([0,0,0,0,1], int).reshape(5,1)
-                        
-                    cee +=h.dot(Y) 
+                for x in range(5):
+                    if x == 0:
+                        m = np.array([1,0,0,0,0], int).reshape(5,1)
+                    elif x == 1:
+                        m = np.array([0,1,0,0,0], int).reshape(5,1)
+                    elif x == 2:
+                        m = np.array([0,0,1,0,0], int).reshape(5,1)
+                    elif x == 3:
+                        m = np.array([0,0,0,1,0], int).reshape(5,1)
+                    elif x == 4:
+                        m = np.array([0,0,0,0,1], int).reshape(5,1)
+
+                    cee +=h.dot(m) 
                         
                 curr.ans_error = -cee
                 
@@ -658,7 +659,6 @@ def train_model(revs, partition, W, rel_dict, batch_size, n_labels, n_epochs=200
 
         epoch_error = 0.0
         for batch_ind, batch in enumerate(batches):
-
             cost, grad = par_objective(num_proc, batch, rps, d, We.shape[0], rel_dict, lambdas, n_labels)
             update = ag.rescale_update(grad)
             rps = rps - update
