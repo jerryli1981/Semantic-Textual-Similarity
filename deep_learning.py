@@ -365,13 +365,15 @@ def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
 def build_mergetree_features(revs, word_idx_map):
                 
     rel_dict = defaultdict(float) 
+    newRevs = []
 
     for index, datum in enumerate(revs):
         if index % 100 == 0:
             print index   
 
         first_parse_output = datum["parse"][0] 
-        second_parse_output = datum["parse"][1]   
+        second_parse_output = datum["parse"][1]  
+
                 
         try:     
 
@@ -395,10 +397,18 @@ def build_mergetree_features(revs, word_idx_map):
                     node.ind = 0
             else:
                 node.ind = 0
-                        
-        datum["tree"] = tree
 
-    return rel_dict
+        score = datum["score"]
+        import math
+        label = math.floor(float(score))
+        if label == 5.0:
+            label = 4.0
+        tree.label = int(label)
+        tree.score = score                
+        datum["tree"] = tree
+        newRevs.append(datum)
+
+    return newRevs, rel_dict
       
                  
 if __name__=="__main__":
@@ -457,16 +467,16 @@ if __name__=="__main__":
             print "data loaded!, Begin to generate features"
         
         if feature_engineering_type == "merge-into-tree":
-            rel_dict = build_mergetree_features(revs, word_idx_map)
+            newRevs, rel_dict = build_mergetree_features(revs, word_idx_map)
                                    
         print "Begin to dump features"
         with open(fn+".features", "wb") as f:
-            cPickle.dump([revs, word_embedding_matrix, rel_dict], f)
+            cPickle.dump([newRevs, word_embedding_matrix, rel_dict], f)
         print "features is dumped"    
         
     elif mode=="training":
         
-        from rnn import evaluate_DT_RNN
+        from rnn import train_model
         if args.c == None:
             print "crossvalidation can't be None"
             sys.exit()
@@ -474,15 +484,21 @@ if __name__=="__main__":
         if args.n == None:
             print "-n, the number of epochs for training can't be None"
             sys.exit()
+
+        if args.s == None:
+            print "-s, dimension can't be None"
+            sys.exit()
                 
         num_folds = int(args.c)
         numepochs = int(args.n)
+        dim = int(args.s)
 
         with open(fn+".features", "rb") as f:
             X = cPickle.load(f)
 
         revs = X[0]
         word_embedding_matrix = X[1]
+        rel_dict = X[2]
 
         partitions = []       
         print "Begin to generate partitons"
@@ -496,29 +512,29 @@ if __name__=="__main__":
             partitions.append(partition)
 
         valid_results = []    
-
+        num_labels = 5
+        best_valid_perf = 0.
         for i in range(num_folds):
             partition = partitions[i];
-            valid_perf, test_perf, params = evaluate_DT_RNN(revs, 
-                                                    partition, 
-                                                    word_embedding_matrix, 
-                                                    rel_dict,
-                                                    batch_size = 100,
-                                                    n_labels = num_labels,
-                                                    n_epochs=numepochs,
-                                                    d = dim)
+            valid_perf, params = train_model(revs[:600], 
+                                            partition, 
+                                            word_embedding_matrix, 
+                                            rel_dict,
+                                            batch_size = 100,
+                                            n_labels = num_labels,
+                                            n_epochs=numepochs,
+                                            d = dim)
             
-            print ("cv: " + str(i) + ", test perf %f %%" %(test_perf * 100.))
-            test_results.append(test_perf)  
+            print ("cv: " + str(i) + ", validate perf %f %%" %(valid_perf * 100.))
             valid_results.append(valid_perf)
-            if(test_perf > best_test_perf):
+            if(valid_perf > best_valid_perf):
                 print "saving RNN model"
-                cPickle.dump( ( params, vocab, rel_dict, dim), open('RNN_model_tree_'+fname, 'wb'))
-                best_test_perf = test_perf  
+                with open(fn+".model", 'wb') as f:
+                    cPickle.dump( ( params, rel_dict, dim), f)
+                best_valid_perf = valid_perf  
 
                 
         print('Average valid performance %f %%' %(np.mean(valid_results) * 100.))        
-        print('Average test performance %f %%' %(np.mean(test_results) * 100.))    
-        print('Best test performance %f %%' %(best_test_perf * 100.))     
+        print('Best valid performance %f %%' %(best_valid_perf * 100.))     
       
     
