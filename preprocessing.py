@@ -1,5 +1,4 @@
 import numpy as np
-import re
 import gzip
 import sys
 import cPickle
