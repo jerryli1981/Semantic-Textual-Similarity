@@ -214,7 +214,7 @@ def mergeDepTreesIntoGraph(text_parse_output, hypo_parse_output):
         dep = eles[3]+"-"+eles[4]
         G.add_edge(gov, dep, relation_name=rel)
     
-    isCyc = nx.is_directed_acyclic_graph(G)
+    is_dag = nx.is_directed_acyclic_graph(G)
 
     linear = list(nx.dfs_preorder_nodes(G, "ROOT-0"))
     toks = [re.sub(r'-(\d+)', "", ele) for ele in linear if ele != "ROOT-0"]
@@ -224,7 +224,7 @@ def mergeDepTreesIntoGraph(text_parse_output, hypo_parse_output):
     relations = [(ele[0], [(int(ele[2]), ele[1]),(int(ele[4]), ele[3])]) for ele in xs]
     graph = make_tree(relations)
     
-    return sent.strip(), graph, isCyc
+    return sent.strip(), graph, is_dag
 
 def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
    
@@ -342,6 +342,8 @@ def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
         dep = eles[3]+"-"+eles[4]
         G.add_edge(gov, dep, relation_name=rel)
 
+    is_dag = nx.is_directed_acyclic_graph(G)
+
     linear = list(nx.dfs_preorder_nodes(G, "ROOT-0"))
     toks = [re.sub(r'-(\d+)', "", ele) for ele in linear if ele != "ROOT-0"]
     sent = " ".join(toks)
@@ -360,27 +362,28 @@ def mergeDepTreesIntoTree(text_parse_output, hypo_parse_output):
     relations = [(ele[0], [(int(ele[2]), ele[1]),(int(ele[4]), ele[3])]) for ele in xs]
     depTree = make_tree(relations)
     
-    return sent.strip(), xs, depTree
+    return sent.strip(), xs, depTree, is_dag
            
 def build_mergetree_features(revs, word_idx_map):
                 
     rel_dict = defaultdict(float) 
     newRevs = []
-
+    import math
     for index, datum in enumerate(revs):
         if index % 100 == 0:
-            print index   
-
+            print index
+        
         first_parse_output = datum["parse"][0] 
         second_parse_output = datum["parse"][1]  
-
-                
+        
         try:     
-
-            linearizedSentByTree, xs, tree = mergeDepTreesIntoTree(first_parse_output, second_parse_output)
-
+            linearizedSentByTree, xs, tree, is_dag = mergeDepTreesIntoTree(first_parse_output, second_parse_output)
         except:
             print "merge dependency trees into tree has problem"
+            continue
+
+        if is_dag == False:
+            print "merge dependency trees contains cycle"
             continue
 
         for node in tree.get_nodes():             
@@ -398,16 +401,18 @@ def build_mergetree_features(revs, word_idx_map):
             else:
                 node.ind = 0
 
-        score = datum["score"]
-        import math
-        label = math.floor(float(score))
-        if label == 5.0:
-            label = 4.0
+        score = float(datum["score"])
+        if score == 5.0:
+            score = 4.9
+        label = math.floor(score)
         tree.label = int(label)
+        if type(tree.label) is str:
+            print "shit"
+            break
         tree.score = score                
         datum["tree"] = tree
         newRevs.append(datum)
-
+    
     return newRevs, rel_dict
       
                  
@@ -516,7 +521,7 @@ if __name__=="__main__":
         best_valid_perf = 0.
         for i in range(num_folds):
             partition = partitions[i];
-            valid_perf, params = train_model(revs[:600], 
+            valid_perf, params = train_model(revs, 
                                             partition, 
                                             word_embedding_matrix, 
                                             rel_dict,
@@ -536,5 +541,3 @@ if __name__=="__main__":
                 
         print('Average valid performance %f %%' %(np.mean(valid_results) * 100.))        
         print('Best valid performance %f %%' %(best_valid_perf * 100.))     
-      
-    
