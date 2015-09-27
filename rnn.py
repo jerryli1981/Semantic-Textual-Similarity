@@ -41,7 +41,7 @@ def forward_prop(params, tree, d, n_labels, training=True):
 
     (Wr_dict, Wv, b, We, Ws) = params
     
-    # forward prop
+    # forward prop     
     while to_do:
         
         curr = to_do.pop(0)
@@ -153,6 +153,42 @@ def forward_prop(params, tree, d, n_labels, training=True):
                     cee +=h.dot(Y) 
                         
                 curr.ans_error = -cee
+
+            elif n_labels == 5:
+                h = softmax(Ws, curr.p_norm)
+    
+                y = tree.label
+                if y == 0:
+                    Y = np.array([1,0,0,0,0], int).reshape(5,1)
+                elif y == 1:
+                    Y = np.array([0,1,0,0,0], int).reshape(5,1)
+                elif y == 2:
+                    Y = np.array([0,0,1,0,0], int).reshape(5,1)
+                elif y == 3:
+                    Y = np.array([0,0,0,1,0], int).reshape(5,1)
+                elif y == 4:
+                    Y = np.array([0,0,0,0,1], int).reshape(5,1)
+                
+                curr.ans_delta = Ws.dot(h-Y)
+                
+                h = h.reshape(5)
+                h = np.log(h)
+                cee = 0.
+                for y in range(5):
+                    if y == 0:
+                        Y = np.array([1,0,0,0,0], int).reshape(5,1)
+                    elif y == 1:
+                        Y = np.array([0,1,0,0,0], int).reshape(5,1)
+                    elif y == 2:
+                        Y = np.array([0,0,1,0,0], int).reshape(5,1)
+                    elif y == 3:
+                        Y = np.array([0,0,0,1,0], int).reshape(5,1)
+                    elif y == 4:
+                        Y = np.array([0,0,0,0,1], int).reshape(5,1)
+                        
+                    cee +=h.dot(Y) 
+                        
+                curr.ans_error = -cee
                 
         curr.finished = 1
     
@@ -218,11 +254,11 @@ def par_objective(num_proc, data, params, d, We_size, rel_dict, lambdas, n_label
     to_map = []
     for item in split_data:
         to_map.append( (oparams, item) )
-        
+     
     result = pool.map(objective_and_grad, to_map)
-    pool.close()   # no more processes accepted by this pool    
+    pool.close()   # no more processes accepted by this pool 
     pool.join()    # wait until all processes are finished
-    
+
     total_err = 0.0
     all_nodes = 0.0
     total_grad = None
@@ -365,7 +401,7 @@ class Adagrad():
     def reset_weights(self):
         self.h = np.zeros(self.dim)
         
-def validate_linear(trainTrees, validTrees, params, d):
+def validate_linear(trainTrees, validTrees, params, d, n_labels):
     
     stop = stopwords.words('english')
 
@@ -385,7 +421,7 @@ def validate_linear(trainTrees, validTrees, params, d):
     for num_finished, tree in enumerate(trainTrees):
     
             # process validation trees
-            forward_prop(params, tree, d, training=False)
+            forward_prop(params, tree, d, n_labels,training=False)
     
             ave = np.zeros( (d, 1))
             words = np.zeros ( (d, 1))
@@ -421,7 +457,7 @@ def validate_linear(trainTrees, validTrees, params, d):
     for num_finished, tree in enumerate(validTrees):
     
             # process validation trees
-            forward_prop(params, tree, d, training=False)
+            forward_prop(params, tree, d, n_labels, training=False)
     
             ave = np.zeros( (d, 1))
             words = np.zeros ( (d, 1))
@@ -545,199 +581,19 @@ def validate(trainTrees, validTrees, params, d, n_labels):
     val_acc = nltk.classify.util.accuracy(classifier, val_feats)
     return train_acc, 1-val_acc
 
-def test_linear(trainTrees, testTrees, params, d):
-    
-    stop = stopwords.words('english')
-
-    (Wr_dict, Wv, bias, We, Ws) = params
-    
-    for tree in trainTrees:
-        for node in tree.get_nodes():
-            node.vec = We[node.ind, :].reshape((d, 1))
-            
-    
-    for tree in testTrees:
-        for node in tree.get_nodes():
-            node.vec = We[node.ind, :].reshape((d, 1))
-            
-    train_feats = []  
-    train_feats_x = []
-    train_feats_y = []      
-    for num_finished, tree in enumerate(trainTrees):
-    
-            # process validation trees
-            forward_prop(params, tree, d, training=False)
-    
-            ave = np.zeros( (d, 1))
-            words = np.zeros ( (d, 1))
-            count = 0
-            wcount = 0
-            word_list = []
-            for ex, node in enumerate(tree.get_nodes()):
-    
-                if ex != 0 and node.word not in stop:
-                    ave += node.p_norm
-                    count += 1
-    
-            ave = ave / count
-            featvec = ave.flatten()
-    
-            curr_feats = {}
-            curr_feats_x = []
-            for dim, val in np.ndenumerate(featvec):
-                curr_feats['_' + str(dim)] = val
-                curr_feats_x.append(val)
-                
-            curr_feats_x = np.asarray(curr_feats_x)
-            train_feats.append( (curr_feats, tree.score) )
-            train_feats_x.append(curr_feats_x)
-            train_feats_y.append(float(tree.score))
-            
-    train_feats_x = np.asarray(train_feats_x)        
-    train_feats_y = np.asarray(train_feats_y)    
-                       
-    test_feats = []   
-    test_feats_x = []
-    test_feats_y = []     
-    for num_finished, tree in enumerate(testTrees):
-    
-            # process validation trees
-            forward_prop(params, tree, d, training=False)
-    
-            ave = np.zeros( (d, 1))
-            words = np.zeros ( (d, 1))
-            count = 0
-            wcount = 0
-            word_list = []
-            for ex, node in enumerate(tree.get_nodes()):
-    
-                if ex != 0 and node.word not in stop:
-                    ave += node.p_norm
-                    count += 1
-    
-            ave = ave / count
-            featvec = ave.flatten()
-    
-            curr_feats = {}
-            curr_feats_x = []
-            for dim, val in np.ndenumerate(featvec):
-                curr_feats['_' + str(dim)] = val
-                curr_feats_x.append(val)
-                
-            curr_feats_x = np.asarray(curr_feats_x)    
-            test_feats.append( (curr_feats, tree.score) )
-            test_feats_x.append(curr_feats_x)
-            test_feats_y.append(float(tree.score))
-            
-    test_feats_x = np.asarray(test_feats_x)        
-    test_feats_y = np.asarray(test_feats_y)
-            
-
-    print 'training'
-    regr = linear_model.LinearRegression()
-    regr.fit(train_feats_x, train_feats_y)
-    
-    #classifier = SklearnClassifier(LogisticRegression(C=10))
-    #classifier.train(train_feats)   
-    
-    print 'predicting...'
-    #train_acc = nltk.classify.util.accuracy(classifier, train_feats)
-    #val_acc = nltk.classify.util.accuracy(classifier, val_feats)
-    #return train_acc, 1-val_acc
-    return 1-pearsonr(regr.predict(test_feats_x),test_feats_y)[0]
-
-def test(trainTrees, testTrees, params, d, n_labels):
-    
-    stop = stopwords.words('english')
-
-    (Wr_dict, Wv, bias, We, Ws) = params
-    
-    for tree in trainTrees:
-        for node in tree.get_nodes():
-            node.vec = We[node.ind, :].reshape((d, 1))
-            
-    
-    for tree in testTrees:
-        for node in tree.get_nodes():
-            node.vec = We[node.ind, :].reshape((d, 1))
-            
-    train_feats = []        
-    for num_finished, tree in enumerate(trainTrees):
-    
-            # process validation trees
-            forward_prop(params, tree, d, n_labels, training=False)
-    
-            ave = np.zeros( (d, 1))
-            words = np.zeros ( (d, 1))
-            count = 0
-            wcount = 0
-            word_list = []
-            for ex, node in enumerate(tree.get_nodes()):
-    
-                if ex != 0 and node.word not in stop:
-                    ave += node.p_norm
-                    count += 1
-    
-            ave = ave / count
-            featvec = ave.flatten()
-    
-            curr_feats = {}
-            for dim, val in np.ndenumerate(featvec):
-                curr_feats['_' + str(dim)] = val
-                
-            train_feats.append( (curr_feats, tree.label) )
-                       
-    test_feats = []        
-    for num_finished, tree in enumerate(testTrees):
-    
-            # process validation trees
-            forward_prop(params, tree, d, n_labels,training=False)
-    
-            ave = np.zeros( (d, 1))
-            words = np.zeros ( (d, 1))
-            count = 0
-            wcount = 0
-            word_list = []
-            for ex, node in enumerate(tree.get_nodes()):
-    
-                if ex != 0 and node.word not in stop:
-                    ave += node.p_norm
-                    count += 1
-    
-            ave = ave / count
-            featvec = ave.flatten()
-    
-            curr_feats = {}
-            for dim, val in np.ndenumerate(featvec):
-                curr_feats['_' + str(dim)] = val
-                
-            test_feats.append( (curr_feats, tree.label) )
-            
-
-    print 'training'
-    classifier = SklearnClassifier(LogisticRegression(C=10))
-    classifier.train(train_feats)   
-    
-    print 'predicting...'
-    test_acc = nltk.classify.util.accuracy(classifier, test_feats)
-    return 1-test_acc
-         
-def evaluate_DT_RNN(revs, partition, W, rel_dict, batch_size, n_labels, n_epochs=200, d = 300):
+        
+def train_model(revs, partition, W, rel_dict, batch_size, n_labels, n_epochs=200, d = 300):
     
     trainTrees = []
-    testTrees = []
     validTrees = []
-    for i in range(len(revs)):    
-        rev = revs[i]
-        tree = rev["tree"]
 
+    for i, rev in enumerate(revs):    
+        tree = rev["tree"]
         if partition[i] == "Train":
             trainTrees.append(tree)
         elif partition[i] == "Valid":
             validTrees.append(tree)
-        elif partition[i] == "Test":
-            testTrees.append(tree)
-                     
+                 
     ## remove incorrectly parsed sentences from data
     # print 'removing bad trees train...'
     bad_trees = []
@@ -788,7 +644,6 @@ def evaluate_DT_RNN(revs, partition, W, rel_dict, batch_size, n_labels, n_epochs
     
     print '... training'    
     best_validation_loss = np.inf
-    best_test_lost = np.inf
     start_time = time.clock()
     epoch = 0
     
@@ -809,13 +664,6 @@ def evaluate_DT_RNN(revs, partition, W, rel_dict, batch_size, n_labels, n_epochs
             rps = rps - update
             epoch_error += cost
             #print cost
-                 
-        """
-        # save parameters if the current model is better than previous best model
-        if epoch_error < min_error:
-            min_error = epoch_error
-            savedparams = unroll_params(rps, d, len(vocab), rel_dict)
-        """  
             
         # reset adagrad weights
         if epoch % 3 == 0 and epoch != 0:
@@ -824,8 +672,8 @@ def evaluate_DT_RNN(revs, partition, W, rel_dict, batch_size, n_labels, n_epochs
         
         params = unroll_params(rps, d, We.shape[0], rel_dict, n_labels)
         
-        train_acc, this_validation_loss = validate(trainTrees, validTrees, params, d, n_labels)
-        #train_acc, this_validation_loss = validate_linear(trainTrees, validTrees, params, d)
+        #train_acc, this_validation_loss = validate(trainTrees, validTrees, params, d, n_labels)
+        train_acc, this_validation_loss = validate_linear(trainTrees, validTrees, params, d, n_labels)
    
         print('epoch %i, validation error %f %%' %
                       (epoch, this_validation_loss * 100.))
@@ -839,25 +687,16 @@ def evaluate_DT_RNN(revs, partition, W, rel_dict, batch_size, n_labels, n_epochs
                       (epoch, best_validation_loss * 100.)) 
            
             savedparams = unroll_params(rps, d, We.shape[0], rel_dict, n_labels)
-            test_loss = test(trainTrees, testTrees, params, d, n_labels)
-            #test_loss = test_linear(trainTrees, testTrees, params, d)
             
-            print('epoch %i, test error of best model %f %%' % (epoch,  test_loss * 100.) )
-            
-            if test_loss < best_test_lost:
-                best_test_lost = test_loss
-            
-
-                                                                                                
+                
     end_time = time.clock()
 
-    print('Best validation loss of %f %% , '
-          'with test loss %f %%' %
-          (best_validation_loss * 100., best_test_lost * 100.))
+    print('Best validation loss of %f %% ' %
+                (best_validation_loss * 100.))
     
     print >> sys.stderr, ('The code for file ' +
                           os.path.split(__file__)[1] +
                           ' ran for %.2fm' % ((end_time - start_time) / 60.))
     
-    return 1-best_validation_loss,  1-best_test_lost, savedparams
+    return 1-best_validation_loss, savedparams
     
