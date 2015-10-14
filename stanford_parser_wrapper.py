@@ -96,7 +96,7 @@ class Parser:
         lemmas = []
         for token in parse.taggedYield():
             lemma = wordnet_lemmatizer.lemmatize(token.word())
-            lemmas.append(lemma)
+            lemmas.append(lemma.lower())
             tokens.append(token.word())
             pos.append(token.tag())
        
