@@ -1,6 +1,7 @@
 UNK = 'UNK'
 
 import networkx as nx
+import copy
 
 class Node:
 
@@ -9,6 +10,7 @@ class Node:
         self.kids = []
         self.parent = []
         self.index = None
+        self.finished = False
 
 class DTree:
 
@@ -36,14 +38,15 @@ class DTree:
             if govIdx == -1:
                 rootIdx = depIdx
                 continue
-
-            pNode = Node(lemmas[govIdx])
-            cNode = Node(lemmas[depIdx])
-
-            self.nodes[govIdx].kids.append((cNode, rel))
-            self.nodes[depIdx].parent.append((pNode, rel))
+            self.nodes[govIdx].kids.append((depIdx, rel))
+            self.nodes[depIdx].parent.append((govIdx, rel))
 
         return self.nodes[rootIdx]
+
+    def reset_finished(self):
+        for node in self.nodes:
+            node.finished = False
+
 
     def mergeWith(self, dtree):
         
@@ -63,6 +66,9 @@ class DTree:
             """
 
             dependencies.append((govIdx, depIdx))
+        
+        # here deep copy is necessary due to later we will update self.deps
+        deps = copy.deepcopy(self.deps)
 
         for rel_d, govIdx_d, depIdx_d in dtree.deps:
             
@@ -75,8 +81,8 @@ class DTree:
             depLemma_d = dtree.lemmas[depIdx_d]
          
             add = False
-
-            for rel, govIdx, depIdx in self.deps:
+   
+            for rel, govIdx, depIdx in deps:
 
                 if govIdx == -1:
                     continue 
@@ -99,14 +105,16 @@ class DTree:
                     break
                          
             if add:
-
                 cNode = Node(depLemma_d)
                 self.nodes.append(cNode)
                 newDepIdx = len(self.nodes)-1
                 dependencies.append((matchedTextGovIdx, newDepIdx))
-                pNode = self.nodes[matchedTextGovIdx]   
-                self.nodes[matchedTextGovIdx].kids.append((cNode, rel_d))
-                cNode.parent.append((pNode, rel_d))
+                self.nodes[matchedTextGovIdx].kids.append((newDepIdx, rel_d))
+                self.nodes[newDepIdx].parent.append((matchedTextGovIdx, rel_d))
+
+                #update this for get_rel
+                self.deps.append((rel_d, matchedTextGovIdx, newDepIdx))
+
                                                                
         G = nx.DiGraph()
         G.add_edges_from(dependencies)
@@ -190,7 +198,14 @@ def loadWordMap():
     with open('wordMap.bin','r') as fid:
         return pickle.load(fid)
 
-def buildWordMap():
+def loadRelMap():
+    import cPickle as pickle
+    
+    with open('relMap.bin','r') as fid:
+        return pickle.load(fid)
+
+
+def buildWordRelMap():
     """
     Builds map of all words in training set
     to integer values.
@@ -218,16 +233,25 @@ def buildWordMap():
     print "Counting words to give each word an index.."
     
     words = defaultdict(int)
+    rels = defaultdict(int)
     for tree in trees:
         for node in tree.nodes:
             words[node.word] += 1
+        for rel, gov, dep in tree.deps:
+            rels[rel] += 1
 
     wordMap = dict(zip(words.iterkeys(),xrange(len(words))))
     wordMap[UNK] = len(words) # Add unknown as word
 
+    relMap = dict(zip(rels.iterkeys(),xrange(len(rels))))
+
     print "Saving wordMap to wordMap.bin"
     with open('wordMap.bin','w') as fid:
         pickle.dump(wordMap,fid)
+
+    print "Saving relMap to relMap.bin"
+    with open('relMap.bin','w') as fid:
+        pickle.dump(relMap,fid)
 
 def loadTrees(dataSet='train'):
     """
@@ -243,6 +267,8 @@ def loadTrees(dataSet='train'):
         for index, datum in enumerate(dataset):
             if index %1000 == 0 :
                 print index
+            if index < 9000:
+                continue
             first_parse, second_parse = datum["parse"]
             score = datum["score"]
             first_depTree = DTree(first_parse, score = score)
@@ -269,5 +295,4 @@ if __name__=='__main__':
         import pdb
         pdb.set_trace()
 
-    buildWordMap()
-    #train = loadTrees() 
+    buildWordRelMap()
