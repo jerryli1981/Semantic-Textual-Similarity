@@ -28,7 +28,7 @@ class SGD:
         """
         Runs stochastic gradient descent with model as objective.
         """
-        print "running SGD"
+        #print "running SGD"
         
         m = len(trees)
 
