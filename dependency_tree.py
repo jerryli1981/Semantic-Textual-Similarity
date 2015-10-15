@@ -3,6 +3,11 @@ UNK = 'UNK'
 import networkx as nx
 import copy
 
+class Relation:
+    def __init__(self, mention):
+        self.mention = mention
+        self.index = None
+
 class Node:
 
     def __init__(self, word):
@@ -24,26 +29,23 @@ class DTree:
         self.label = label
         self.score = score
 
-        self.root = self.make_tree(self.deps, self.lemmas)
-
-    def make_tree(self, deps, lemmas):        
         # store tree as adjacent list
         self.nodes = []
-        for tok in lemmas:
+        for tok in self.lemmas:
             self.nodes.append(Node(tok)) 
         
         # add dependency edges between nodes
         rootIdx = None
-        for rel, govIdx, depIdx in deps:
+        for rel, govIdx, depIdx in self.deps:
             if govIdx == -1:
                 rootIdx = depIdx
                 continue
-            self.nodes[govIdx].kids.append((depIdx, rel))
-            self.nodes[depIdx].parent.append((govIdx, rel))
+            self.nodes[govIdx].kids.append((depIdx, Relation(rel)))
+            self.nodes[depIdx].parent.append((govIdx, Relation(rel)))
 
-        return self.nodes[rootIdx]
+        self.root = self.nodes[rootIdx]
 
-    def reset_finished(self):
+    def resetFinished(self):
         for node in self.nodes:
             node.finished = False
 
@@ -109,8 +111,8 @@ class DTree:
                 self.nodes.append(cNode)
                 newDepIdx = len(self.nodes)-1
                 dependencies.append((matchedTextGovIdx, newDepIdx))
-                self.nodes[matchedTextGovIdx].kids.append((newDepIdx, rel_d))
-                self.nodes[newDepIdx].parent.append((matchedTextGovIdx, rel_d))
+                self.nodes[matchedTextGovIdx].kids.append((newDepIdx, Relation(rel_d)))
+                self.nodes[newDepIdx].parent.append((matchedTextGovIdx, Relation(rel_d)))
 
                 #update this for get_rel
                 self.deps.append((rel_d, matchedTextGovIdx, newDepIdx))
@@ -221,7 +223,7 @@ def buildWordRelMap():
             if index %1000 == 0 :
                 print index
             first_parse, second_parse = datum["parse"]
-            score = datum["score"]
+            score = float(datum["score"])
             first_depTree = DTree(first_parse, score = score)
             second_depTree = DTree(second_parse,score = score)
             mergedTree, isDag = first_depTree.mergeWith(second_depTree)
@@ -238,6 +240,8 @@ def buildWordRelMap():
         for node in tree.nodes:
             words[node.word] += 1
         for rel, gov, dep in tree.deps:
+            #reduce total number relations
+            rel = rel.split("_")[0]
             rels[rel] += 1
 
     wordMap = dict(zip(words.iterkeys(),xrange(len(words))))
@@ -259,6 +263,7 @@ def loadTrees(dataSet='train'):
     """
     import cPickle as pickle
     wordMap = loadWordMap()
+    relMap = loadRelMap()
     file = 'training_dataset'
     print "Loading training_dataset"
     trees = []
@@ -270,7 +275,7 @@ def loadTrees(dataSet='train'):
             if index < 9000:
                 continue
             first_parse, second_parse = datum["parse"]
-            score = datum["score"]
+            score = float(datum["score"])
             first_depTree = DTree(first_parse, score = score)
             second_depTree = DTree(second_parse,score = score)
             mergedTree, isDag = first_depTree.mergeWith(second_depTree)
@@ -285,6 +290,13 @@ def loadTrees(dataSet='train'):
                 node.index = wordMap[UNK]
             else:
                 node.index = wordMap[node.word]
+
+            if len(node.kids) != 0:
+                for depIdx, rel in node.kids:
+                    rel.index = relMap[rel.mention.split("_")[0]]
+            if len(node.parent) != 0:
+                for govIdx, rel in node.parent:
+                    rel.index = relMap[rel.mention.split("_")[0]]
 
     return trees
 
