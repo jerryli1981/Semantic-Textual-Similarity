@@ -257,33 +257,63 @@ def buildWordRelMap():
     with open('relMap.bin','w') as fid:
         pickle.dump(relMap,fid)
 
-def loadTrees(dataSet='train'):
+
+
+def loadTrees(cv=None, dataSet='train'):
     """
     Loads training trees. Maps leaf node words to word ids.
     """
     import cPickle as pickle
     wordMap = loadWordMap()
     relMap = loadRelMap()
-    file = 'training_dataset'
-    print "Loading training_dataset"
+    
+    if dataSet == "dev" or dataSet == "train":
+        file = 'training_dataset'
+    elif dataSet == "test":
+        file = 'testing_dataset'
+
+    print "Loading %s dataset..."%dataSet
     trees = []
     with open(file,'r') as fid:
         dataset = pickle.load(fid)
         for index, datum in enumerate(dataset):
-            if index %1000 == 0 :
-                print index
-            if index < 9000:
-                continue
-            first_parse, second_parse = datum["parse"]
-            score = float(datum["score"])
-            first_depTree = DTree(first_parse, score = score)
-            second_depTree = DTree(second_parse,score = score)
-            mergedTree, isDag = first_depTree.mergeWith(second_depTree)
-            if not isDag:
-                print "merge is not dag"
-                continue
-            trees.append(mergedTree)
+            #if index %1000 == 0 :
+                #print index
 
+            first_parse, second_parse = datum["parse"]
+            
+            if dataSet == "train":
+                split = int(datum["split"])
+                if split != cv:
+                    score = float(datum["score"])
+                    first_depTree = DTree(first_parse, score = score)
+                    second_depTree = DTree(second_parse,score = score)
+                    mergedTree, isDag = first_depTree.mergeWith(second_depTree)
+                    if not isDag:
+                        #print "merge is not dag"
+                        continue
+                    trees.append(mergedTree)    
+                
+            elif dataSet == "dev":
+                split = int(datum["split"])
+                if split == cv:
+                    score = float(datum["score"])
+                    first_depTree = DTree(first_parse, score = score)
+                    second_depTree = DTree(second_parse,score = score)
+                    mergedTree, isDag = first_depTree.mergeWith(second_depTree)
+                    if not isDag:
+                        #print "merge is not dag"
+                        continue
+                    trees.append(mergedTree)
+            else:
+                first_depTree = DTree(first_parse)
+                second_depTree = DTree(second_parse)
+                mergedTree, isDag = first_depTree.mergeWith(second_depTree)
+                if not isDag:
+                    #print "merge is not dag"
+                    continue
+                trees.append(mergedTree)
+                
     for tree in trees:
         for node in tree.nodes:
             if node.word not in wordMap:
@@ -299,6 +329,7 @@ def loadTrees(dataSet='train'):
                     rel.index = relMap[rel.mention.split("_")[0]]
 
     return trees
+
 
 if __name__=='__main__':
 
