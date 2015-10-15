@@ -56,7 +56,7 @@ class RNN:
         self.dWs = np.empty(self.Ws.shape)
         self.dbs = np.empty((self.outputDim))
 
-    def costAndGrad(self, mbdata): 
+    def costAndGrad(self, mbdata, test=False): 
 
         cost = 0.0
 
@@ -74,8 +74,13 @@ class RNN:
 
 
         # Forward prop each tree in minibatch
+        corrects = []
+        guesses = []
         for tree in mbdata: 
-            cost += self.forwardProp(tree)
+            c, correct, guess = self.forwardProp(tree)
+            corrects.append(correct)
+            guesses.append(guess)
+            cost += c
 
         # Back prop each tree in minibatch
         for tree in mbdata:
@@ -92,10 +97,17 @@ class RNN:
         cost += (self.rho/2)*np.sum(self.Ws**2)
 
         # the grad order should consistent with stack order
-        return scale*cost,[self.dL,scale*(self.dWR + self.rho*self.WR),
+        if test:
+            return scale*cost,[self.dL,scale*(self.dWR + self.rho*self.WR),
+                                   scale*(self.dWV + self.rho*self.WV),
+                                   scale*self.db,
+                                   scale*(self.dWs+self.rho*self.Ws),scale*self.dbs],corrects,guesses
+        else:
+            return scale*cost,[self.dL,scale*(self.dWR + self.rho*self.WR),
                                    scale*(self.dWV + self.rho*self.WV),
                                    scale*self.db,
                                    scale*(self.dWs+self.rho*self.Ws),scale*self.dbs]
+
 
     def forwardProp(self,tree):
         #because many training iterations. 
@@ -156,7 +168,10 @@ class RNN:
         tree.root.pd = predicted_distribution.reshape(self.outputDim)
         tree.root.td = target_distribution.reshape(self.outputDim)
         cost = -np.dot(target_distribution, np.log(predicted_distribution).T)
-        return cost[0,0]
+        
+        correctLabel = np.argmax(target_distribution)
+        guessLabel = np.argmax(predicted_distribution)
+        return cost[0,0], correctLabel, guessLabel
 
     def backProp(self,tree):
 
@@ -223,7 +238,6 @@ class RNN:
     def fromFile(self,fid):
         import cPickle as pickle
         self.stack = pickle.load(fid)
-
 
     def check_grad(self,data,epsilon=1e-6):
 
