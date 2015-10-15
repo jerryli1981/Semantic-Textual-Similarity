@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pdb
 from scipy.stats import pearsonr
+from scipy.stats import spearmanr
 
 
 # This is the main training function of the codebase. You are intended to run this function via command line 
@@ -67,6 +68,8 @@ def run(args=None):
 
         train_accuracies = []
         dev_accuracies = []
+        dev_pearsons = []
+        dev_spearmans = []
 
         print "CV: %s"%c
 
@@ -90,7 +93,7 @@ def run(args=None):
             print "Running epoch %d"%e
             sgd.run(trainTrees)
             end = time.time()
-            print "Time per epoch : %f"%(end-start)
+            #print "Time per epoch : %f"%(end-start)
 
             with open(opts.outFile,'w') as fid:
                 pickle.dump(opts,fid)
@@ -98,23 +101,28 @@ def run(args=None):
                 nn.toFile(fid)
             if evaluate_accuracy_while_training:
 
-                print "testing on training set real quick"
-                train_accuracies.append(test(opts.outFile,"train",opts.model,trainTrees))
-                print "testing on dev set real quick"
-                dev_accuracies.append(test(opts.outFile,"dev",opts.model,devTrees))
+                #print "testing on training set real quick"
+                #train_accuracies.append(test(opts.outFile,"train",opts.model,trainTrees))
+                #print "testing on dev set real quick"
+                #dev_accuracies.append(test(opts.outFile,"dev",opts.model,devTrees))
+                evl = test(opts.outFile,"dev",opts.model,devTrees)
+                dev_pearsons.append(evl[0])
+                dev_spearmans.append(evl[1])
 
                 # because tesing need to forward propogation, so clear the fprop flags in trees and dev_trees
                 for tree in trainTrees:
                     tree.resetFinished()
                 for tree in devTrees:
                     tree.resetFinished()
-                print "fprop in trees cleared"
+                #print "fprop in trees cleared"
 
         if evaluate_accuracy_while_training:
-            train_errors = [ 1-acc for acc in train_accuracies]
-            dev_errors = [1-acc for acc in dev_accuracies]
-            print "train accuracies", train_accuracies
-            print "dev accuracies",dev_accuracies
+            #train_errors = [ 1-acc for acc in train_accuracies]
+            #dev_errors = [1-acc for acc in dev_accuracies]
+            #print "train accuracies", train_accuracies
+            #print "dev accuracies",dev_accuracies
+            print "dev pearsons", dev_pearsons
+            print "dev spearmanr", dev_spearmans
 
 
 def test(netFile,dataSet, model='RNN', trees=None):
@@ -123,7 +131,7 @@ def test(netFile,dataSet, model='RNN', trees=None):
 
     assert netFile is not None, "Must give model to test"
 
-    print "Testing netFile %s"%netFile
+    #print "Testing netFile %s"%netFile
 
     with open(netFile,'r') as fid:
         opts = pickle.load(fid)
@@ -137,7 +145,7 @@ def test(netFile,dataSet, model='RNN', trees=None):
         nn.initParams()
         nn.fromFile(fid)
 
-    print "Testing %s..."%model
+    #print "Testing %s..."%model
     cost, grad, correct, guess= nn.costAndGrad(trees,test=True)
     """
     correct_sum = 0
@@ -149,7 +157,8 @@ def test(netFile,dataSet, model='RNN', trees=None):
     return correct_sum/float(total)
     """
     print "Pearson correlation %f"%(pearsonr(correct,guess)[0])
-    return pearsonr(correct,guess)[0]
+    print "Spearman correlation %f"%(spearmanr(correct,guess)[0])
+    return pearsonr(correct,guess)[0],spearmanr(correct,guess)[0]
 
 
 if __name__=='__main__':
