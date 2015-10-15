@@ -290,7 +290,7 @@ class RNN:
 
 if __name__ == '__main__':
 
-    __DEBUG__ = True
+    __DEBUG__ = False
     if __DEBUG__:
         import pdb
         pdb.set_trace()
