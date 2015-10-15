@@ -9,6 +9,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import pdb
+from scipy.stats import pearsonr
 
 
 # This is the main training function of the codebase. You are intended to run this function via command line 
@@ -137,8 +138,8 @@ def test(netFile,dataSet, model='RNN', trees=None):
         nn.fromFile(fid)
 
     print "Testing %s..."%model
-
     cost, grad, correct, guess= nn.costAndGrad(trees,test=True)
+    """
     correct_sum = 0
     total = len(trees)
     for i in xrange(0,len(correct)):        
@@ -146,6 +147,9 @@ def test(netFile,dataSet, model='RNN', trees=None):
         
     print "Cost %f, Acc %f"%(cost,correct_sum/float(total))
     return correct_sum/float(total)
+    """
+    print "Pearson correlation %f"%(pearsonr(correct,guess)[0])
+    return pearsonr(correct,guess)[0]
 
 
 if __name__=='__main__':
