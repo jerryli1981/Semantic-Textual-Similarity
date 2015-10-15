@@ -171,7 +171,8 @@ class RNN:
         
         correctLabel = np.argmax(target_distribution)
         guessLabel = np.argmax(predicted_distribution)
-        return cost[0,0], correctLabel, guessLabel
+        predictScore = predicted_distribution.reshape(self.outputDim,).dot(np.array([1,2,3,4,5]))
+        return cost[0,0], predictScore, tree.score
 
     def backProp(self,tree):
 
@@ -289,7 +290,7 @@ class RNN:
 
 if __name__ == '__main__':
 
-    __DEBUG__ = False
+    __DEBUG__ = True
     if __DEBUG__:
         import pdb
         pdb.set_trace()
