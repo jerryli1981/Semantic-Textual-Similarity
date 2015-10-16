@@ -1,13 +1,6 @@
 import numpy as np
 import collections
 
-# This is a simple Recursive Neural Netowrk with one ReLU Layer and a softmax layer
-# TODO: You must update the forward and backward propogation functions of this file.
-
-# You can run this file via 'python rnn.py' to perform a gradient check! 
-
-# tip: insert pdb.set_trace() in places where you are unsure whats going on
-
 def softmax(x):
     N = x.shape[0]
     x -= np.max(x,axis=1).reshape(N,1)
@@ -26,11 +19,14 @@ class RNN:
         self.defaultVec = lambda : np.zeros((wvecDim,))
         self.rho = rho
 
-    def initParams(self):
+    def initParams(self, word2vecs):
         np.random.seed(12341)
 
         # Word vectors
-        self.L = 0.01*np.random.randn(self.wvecDim,self.numWords)
+        #self.L = 0.01*np.random.randn(self.wvecDim,self.numWords)
+        word2vecs = word2vecs[:self.wvecDim, :]
+
+        self.L = 0.01*word2vecs
 
         # Hidden layer parameters 
         self.WV = 0.01*np.random.randn(self.wvecDim, self.wvecDim)

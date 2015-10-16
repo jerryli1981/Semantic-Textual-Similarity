@@ -2,6 +2,7 @@ UNK = 'UNK'
 
 import networkx as nx
 import copy
+import numpy as np
 
 class Relation:
     def __init__(self, mention):
@@ -206,6 +207,12 @@ def loadRelMap():
     with open('relMap.bin','r') as fid:
         return pickle.load(fid)
 
+def loadWord2VecMap():
+    import cPickle as pickle
+    
+    with open('word2vec.bin','r') as fid:
+        return pickle.load(fid)
+
 
 def buildWordRelMap():
     """
@@ -330,6 +337,53 @@ def loadTrees(cv=None, dataSet='train'):
 
     return trees
 
+def build_word2Vector_glove():
+
+    """
+    Loads 300x1 word vecs from glove
+    """
+    import gzip
+    vocab = loadWordMap()
+    word_vecs = {}
+    with gzip.open("glove.6B.300d.txt.gz", "rb") as f:
+        for line in f:
+           toks = line.split(' ')
+           word = toks[0]
+           if word in vocab:
+               word_vecs[word] = np.fromiter(toks[1:], dtype='float32')  
+               
+    k = 300
+    min_df = 1
+    
+    """
+    For words that occur in at least min_df documents, create a separate word vector.    
+    0.25 is chosen so the unknown vectors have (approximately) same variance as pre-trained ones
+    """
+
+    for word in vocab:
+        if word not in word_vecs and vocab[word] >= min_df:
+            word_vecs[word] = np.random.uniform(-0.25,0.25,k) 
+
+
+    assert len(vocab) == len(word_vecs), "length of vocab mush equal with word_vecs"   
+
+    
+    """
+    Get word matrix. W[i] is the vector for word indexed by i
+    """
+    vocab_size = len(word_vecs)
+    word_embedding_matrix = np.zeros(shape=(k,vocab_size))            
+
+    for i, word in enumerate(word_vecs):
+        word_embedding_matrix[:,i] = word_vecs[word]
+    #print "len of word_embedding_matrix",len(word_embedding_matrix)
+    #print "len of vocab",len(vocab)
+    #print "len of word_vecs",len(word_vecs)
+    import cPickle as pickle
+    print "Saving word2vec to word2vec.bin"
+    with open('word2vec.bin','w') as fid:
+        pickle.dump(word_embedding_matrix,fid)
+
 
 if __name__=='__main__':
 
@@ -338,4 +392,6 @@ if __name__=='__main__':
         import pdb
         pdb.set_trace()
 
-    buildWordRelMap()
+    #buildWordRelMap()
+
+    build_word2Vector_glove()
