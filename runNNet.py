@@ -64,6 +64,8 @@ def run(args=None):
 
     opts.relNum = len(tr.loadRelMap())
     
+    word2vecs = tr.loadWord2VecMap()
+    
     for c in xrange(opts.crossValidation):
 
         train_accuracies = []
@@ -83,7 +85,7 @@ def run(args=None):
         else:
             raise '%s is not a valid neural network so far only RNTN, RNN, RNN2, RNN3, and DCNN'%opts.model
         
-        nn.initParams()
+        nn.initParams(word2vecs)
 
         sgd = optimizer.SGD(nn,alpha=opts.step,minibatch=opts.minibatch,
             optimizer=opts.optimizer)
@@ -102,10 +104,10 @@ def run(args=None):
             if evaluate_accuracy_while_training:
 
                 #print "testing on training set real quick"
-                #train_accuracies.append(test(opts.outFile,"train",opts.model,trainTrees))
+                #train_accuracies.append(test(opts.outFile,"train",word2vecs,opts.model,trainTrees))
                 #print "testing on dev set real quick"
                 #dev_accuracies.append(test(opts.outFile,"dev",opts.model,devTrees))
-                evl = test(opts.outFile,"dev",opts.model,devTrees)
+                evl = test(opts.outFile,"dev",word2vecs,opts.model,devTrees)
                 dev_pearsons.append(evl[0])
                 dev_spearmans.append(evl[1])
 
@@ -125,7 +127,7 @@ def run(args=None):
             print "dev spearmanr", dev_spearmans
 
 
-def test(netFile,dataSet, model='RNN', trees=None):
+def test(netFile,dataSet, word2vecs,model='RNN', trees=None):
     if trees==None:
         trees = tr.loadTrees(dataSet)
 
@@ -142,11 +144,12 @@ def test(netFile,dataSet, model='RNN', trees=None):
         else:
             raise '%s is not a valid neural network so far only RNTN, RNN, RNN2, RNN3, and DCNN'%opts.model
         
-        nn.initParams()
+        nn.initParams(word2vecs)
         nn.fromFile(fid)
 
     #print "Testing %s..."%model
     cost, grad, correct, guess= nn.costAndGrad(trees,test=True)
+    print "Cost %f"%cost
     """
     correct_sum = 0
     total = len(trees)
