@@ -1,6 +1,8 @@
 import numpy as np
 import collections
 
+from scipy.stats import entropy
+
 def softmax(x):
     N = x.shape[0]
     x -= np.max(x,axis=1).reshape(N,1)
@@ -163,12 +165,16 @@ class RNN:
         predicted_distribution= softmax((np.dot(self.Ws, tree.root.hAct) + self.bs).reshape(1, self.outputDim))
         tree.root.pd = predicted_distribution.reshape(self.outputDim)
         tree.root.td = target_distribution.reshape(self.outputDim)
-        cost = -np.dot(target_distribution, np.log(predicted_distribution).T)
+
+        #cost = -np.dot(target_distribution, np.log(predicted_distribution).T)
+        cost = entropy(target_distribution.reshape(self.outputDim,),predicted_distribution.reshape(self.outputDim,))
+
+        #assert cost1[0,0] == cost2, "they should equal"
         
         correctLabel = np.argmax(target_distribution)
         guessLabel = np.argmax(predicted_distribution)
         predictScore = predicted_distribution.reshape(self.outputDim,).dot(np.array([1,2,3,4,5]))
-        return cost[0,0], predictScore, tree.score
+        return cost, predictScore, tree.score
 
     def backProp(self,tree):
 
@@ -299,6 +305,7 @@ if __name__ == '__main__':
 
     relMap = treeM.loadRelMap()
     relNum = len(relMap)
+    word2vecs = treeM.loadWord2VecMap()
 
     wvecDim = 10
     outputDim = 5
@@ -306,7 +313,7 @@ if __name__ == '__main__':
     
     #mb : mini batch
     rnn = RNN(relNum,wvecDim,outputDim,numW,mbSize=4)
-    rnn.initParams()
+    rnn.initParams(word2vecs)
 
     mbData = train[:4]
     
