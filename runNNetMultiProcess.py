@@ -301,7 +301,7 @@ def run(args=None):
             end = time.time()
             print "Time per epoch : %f"%(end-start)
             
-
+            """
             with open(opts.outFile,'w') as fid:
                 pickle.dump(opts,fid)
                 pickle.dump(sgd.costt,fid)
@@ -330,7 +330,7 @@ def run(args=None):
             #print "dev accuracies",dev_accuracies
             print "dev pearsons", dev_pearsons
             print "dev spearmanr", dev_spearmans
-
+        """
 
 def test(netFile,dataSet, word2vecs,model='RNN', trees=None):
     if trees==None:
