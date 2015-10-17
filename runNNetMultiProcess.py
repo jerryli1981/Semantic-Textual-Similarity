@@ -258,9 +258,10 @@ if __name__=='__main__':
     parser.add_option("--model",dest="model",type="string",default="RNN")
 
     parser.add_option("--crossValidation",dest="crossValidation",type="int",default=10)
-    
-    args = None
 
+    parser.add_option("--numProcess",dest="numProcess",type="int",default=4)
+
+    args = None
     (opts, args)=parser.parse_args()
 
     opts.numWords = len(tr.loadWordMap())
@@ -268,8 +269,7 @@ if __name__=='__main__':
     opts.relNum = len(tr.loadRelMap())
     
     word2vecs = tr.loadWord2VecMap()
-
-    num_proc = 4
+    print "word2vecs shape",word2vecs.shape
 
     for c in xrange(opts.crossValidation):
 
@@ -287,27 +287,21 @@ if __name__=='__main__':
 
         params = (nn.L, nn.WR, nn.WV, nn.b, nn.Ws, nn.bs)
 
-        #grads = [nn.dWR, nn.dWV, nn.db, nn.dWs, nn.dbs]
-
         hparams = (nn.relNum, nn.wvecDim, nn.outputDim, nn.numWords)
 
         roll_params = roll_params(params)
-
-        batch_size = 400
-        
+ 
         for e in range(opts.epochs):
             print "Running epoch %d"%e
 
             random.shuffle(trainTrees)
 
-            batches = [trainTrees[x : x + batch_size] for x in xrange(0, len(trainTrees), batch_size)]
+            batches = [trainTrees[x : x + opts.minibatch] for x in xrange(0, len(trainTrees), opts.minibatch)]
 
             start = time.time()
             for batch in batches:
-    
-                par_objective(num_proc, batch, hparams,roll_params)
+                par_objective(opts.numProcess, batch, hparams,roll_params)
             
             end = time.time()
+
             print "Time per epoch : %f"%(end-start)
-
-
