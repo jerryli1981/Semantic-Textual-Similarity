@@ -286,8 +286,6 @@ def loadTrees(cv=None, dataSet='train'):
         for index, datum in enumerate(dataset):
             #if index %1000 == 0 :
                 #print index
-            if index < 8000:
-                continue
 
             first_parse, second_parse = datum["parse"]
             
