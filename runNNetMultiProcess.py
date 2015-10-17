@@ -2,22 +2,51 @@ import optparse
 import cPickle as pickle
 
 import sgd as optimizer
-
-
 from rnn import RNN
 
 import dependency_tree as tr
 import time
-import matplotlib.pyplot as plt
 import numpy as np
 import pdb
 import collections
 import random
-import copy
 from scipy.stats import pearsonr
 from scipy.stats import spearmanr
 from scipy.stats import entropy
 from multiprocessing import Pool
+
+def unroll_params(arr, hparams):
+
+    relNum, wvecDim, outputDim, numWords = hparams
+
+    ind = 0
+
+    d = wvecDim*wvecDim
+
+    L = arr[ind : ind + numWords*wvecDim].reshape( (wvecDim, numWords) )
+    ind +=numWords*wvecDim
+
+    WR = arr[ind : ind + relNum*d].reshape( (relNum, wvecDim, wvecDim) )
+    ind += relNum*d
+
+    WV = arr[ind : ind + d].reshape( (wvecDim, wvecDim) )
+    ind += d
+
+    b = arr[ind : ind + wvecDim].reshape(wvecDim,)
+    ind += wvecDim
+
+    Ws = arr[ind : ind + outputDim*wvecDim].reshape( (outputDim, wvecDim))
+    ind += outputDim*wvecDim
+
+    bs = arr[ind : ind + outputDim].reshape(outputDim,)
+
+    return (L, WR, WV, b, Ws, bs)
+
+
+# roll all parameters into a single vector
+def roll_params(params):
+    nn.L, nn.WR, nn.WV, nn.b, nn.Ws, nn.bs = params
+    return np.concatenate((nn.L.ravel(), nn.WR.ravel(), nn.WV.ravel(), nn.b.ravel(), nn.Ws.ravel(), nn.bs.ravel()))
 
 def softmax(x):
     N = x.shape[0]
@@ -32,7 +61,7 @@ def forwardProp(hparams, params, tree):
 
         L, WR, WV, b, Ws, bs = params
 
-        WV_shape, WR_shape, wvecDim, Ws_shape, outputDim = hparams
+        relNum, wvecDim, outputDim, numWords = hparams
 
         cost  =  0.0 
 
@@ -75,6 +104,7 @@ def forwardProp(hparams, params, tree):
         # compute target distribution   
         if tree.score == 5.0:
             tree.score = 4.99999 
+        
         target_distribution = np.zeros((1, outputDim))
         for i in xrange(outputDim):
             score_floor = np.floor(tree.score)
@@ -94,14 +124,15 @@ def forwardProp(hparams, params, tree):
 
         #assert cost1[0,0] == cost2, "they should equal"
         
-        correctLabel = np.argmax(target_distribution)
-        guessLabel = np.argmax(predicted_distribution)
-        predictScore = predicted_distribution.reshape(outputDim,).dot(np.array([1,2,3,4,5]))
-        return cost, predictScore, tree.score
+        #correctLabel = np.argmax(target_distribution)
+        #guessLabel = np.argmax(predicted_distribution)
+        #predictScore = predicted_distribution.reshape(outputDim,).dot(np.array([1,2,3,4,5]))
+        #return cost, predictScore, tree.score
+        return cost
 
 def backProp(grads, params, tree):
 
-    dWR, dWV, db, dWs, dbs, dL = grads
+    dL, dWR, dWV, db, dWs, dbs= grads
     L, WR, WV, b, Ws, bs = params
 
     to_do = []
@@ -139,76 +170,69 @@ def backProp(grads, params, tree):
                 rel_vec = WR[rel.index]
                 kid.deltas = np.dot(rel_vec.T, curr.deltas)
 
-def objAndGrad(data): 
+def objAndGrad(par_data): 
 
-        hparams = data[0]
-        params = data[1]
-        grads = data[2]
-        mbdata = data[3]
+    hparams, params = par_data[0]
+    mbdata = par_data[1]
 
-        WV_shape, WR_shape, wvecDim, Ws_shape, outputDim = hparams
+    relNum, wvecDim, outputDim, numWords = hparams
 
-        cost = 0.0
+    cost = 0.0
 
-    
-        dWR, dWV, db, dWs, dbs = grads
+    # Gradients
+    dWR = np.empty((relNum, wvecDim, wvecDim))
+    dWV = np.empty((wvecDim, wvecDim))
+    db = np.empty((wvecDim))
+    dWs = np.empty((outputDim,wvecDim))
+    dbs = np.empty((outputDim))
 
-        # Zero gradients
-        dWV[:] = 0
-        dWR[:] = 0
-        db[:] = 0
-        dWs[:] = 0
-        dbs[:] = 0
+    # Zero gradients
+    dWR[:] = 0
+    dWV[:] = 0
+    db[:] = 0
+    dWs[:] = 0
+    dbs[:] = 0
 
-        #create with default_factory : self.defaultVec = lambda : np.zeros((wvecDim,))
-        defaultVec = lambda : np.zeros((wvecDim,))
-        dL = collections.defaultdict(defaultVec)
+    #create with default_factory : self.defaultVec = lambda : np.zeros((wvecDim,))
+    defaultVec = lambda : np.zeros((wvecDim,))
+    dL = collections.defaultdict(defaultVec)
 
-        grads.append(dL)
-        # Forward prop each tree in minibatch
-        corrects = []
-        guesses = []
-        for tree in mbdata: 
-            c, correct, guess = forwardProp(hparams, params, tree)
-            corrects.append(correct)
-            guesses.append(guess)
-            cost += c
+    grads = (dL, dWR, dWV, db, dWs, dbs)
 
-        # Back prop each tree in minibatch
-        for tree in mbdata:
-            backProp(grads, params, tree)
+    params = unroll_params(params, hparams)
 
-        # scale cost and grad by mb size
-        scale = (1./len(mbdata))
-        for v in dL.itervalues():
-            v *=scale
+    for tree in mbdata: 
+        c = forwardProp(hparams, params, tree)
+        cost += c
         
-        """
-        # Add L2 Regularization 
-        cost += (model.rho/2)*np.sum(model.WV**2)
-        cost += (model.rho/2)*np.sum(model.WR**2)
-        cost += (model.rho/2)*np.sum(model.Ws**2)
 
-        return scale*cost,[dL,scale*(dWR + rho*WR),
-                                   scale*(model.dWV + model.rho*model.WV),
-                                   scale*model.db,
-                                  scale*(model.dWs+model.rho*model.Ws),scale*model.dbs]
-        """
-        return 0,0
+    # Back prop each tree in minibatch
+    for tree in mbdata:
+        backProp(grads, params, tree)
+        
+    return cost
 
-def par_objective(trainTrees,i,n,batch_size,hparams,params,grads):
-    pool = Pool(processes = 4)
-    trees = trainTrees[i:i+batch_size]
-    split_data = [trees[j:j+n] for j in range(0,batch_size,n)]
+def par_objective(num_proc, data, hparams, params):
+
+    pool = Pool(processes = num_proc)
+
+    oparams = (hparams, params)
+
+    n = len(data) / num_proc
+    split_data = [data[i:i+n] for i in range(0, len(data), n)]
     to_map = []
+
     for item in split_data:
-        to_map.append((hparams, params, grads, item))
+        to_map.append((oparams, item))
 
     result = pool.map(objAndGrad,to_map)
     pool.close()
     pool.join()
 
-def run(args=None):
+
+
+if __name__=='__main__':
+
     usage = "usage : %prog [options]"
     parser = optparse.OptionParser(usage=usage)
 
@@ -234,17 +258,10 @@ def run(args=None):
     parser.add_option("--model",dest="model",type="string",default="RNN")
 
     parser.add_option("--crossValidation",dest="crossValidation",type="int",default=10)
+    
+    args = None
 
-    (opts,args)=parser.parse_args(args)
-
-
-    # make this false if you dont care about your accuracies per epoch, makes things faster!
-    evaluate_accuracy_while_training = True
-
-    # Testing
-    if opts.test:
-        test(opts.inFile,opts.data,opts.model)
-        return
+    (opts, args)=parser.parse_args()
 
     opts.numWords = len(tr.loadWordMap())
 
@@ -254,14 +271,7 @@ def run(args=None):
 
     num_proc = 4
 
-    
-    
     for c in xrange(opts.crossValidation):
-
-        train_accuracies = []
-        dev_accuracies = []
-        dev_pearsons = []
-        dev_spearmans = []
 
         print "CV: %s"%c
 
@@ -270,106 +280,34 @@ def run(args=None):
         print "train size %s"%len(trainTrees)
         print "dev size %s"%len(devTrees)
 
-        if(opts.model=='RNN'):
-            nn = RNN(opts.relNum, opts.wvecDim,opts.outputDim,opts.numWords,opts.minibatch)
-        else:
-            raise '%s is not a valid neural network so far only RNTN, RNN, RNN2, RNN3, and DCNN'%opts.model
+
+        nn = RNN(opts.relNum, opts.wvecDim,opts.outputDim,opts.numWords,opts.minibatch)
         
         nn.initParams(word2vecs)
 
-        params = nn.stack
-        grads = [nn.dWR, nn.dWV, nn.db, nn.dWs, nn.dbs]
-        hparams = [nn.WV.shape, nn.WR.shape, nn.wvecDim, nn.Ws.shape, nn.outputDim]
+        params = (nn.L, nn.WR, nn.WV, nn.b, nn.Ws, nn.bs)
 
-        random.shuffle(trainTrees)
+        #grads = [nn.dWR, nn.dWV, nn.db, nn.dWs, nn.dbs]
 
-        #chunk size
-        m = len(trainTrees)
+        hparams = (nn.relNum, nn.wvecDim, nn.outputDim, nn.numWords)
+
+        roll_params = roll_params(params)
 
         batch_size = 400
-
-        n = batch_size/ num_proc
         
         for e in range(opts.epochs):
-            start = time.time()
             print "Running epoch %d"%e
+
+            random.shuffle(trainTrees)
+
+            batches = [trainTrees[x : x + batch_size] for x in xrange(0, len(trainTrees), batch_size)]
+
+            start = time.time()
+            for batch in batches:
+    
+                par_objective(num_proc, batch, hparams,roll_params)
             
-            for i in xrange(0,m-batch_size+1,batch_size):
-
-                par_objective(trainTrees,i,n,batch_size,hparams,params,grads)
-
             end = time.time()
             print "Time per epoch : %f"%(end-start)
-            
-            """
-            with open(opts.outFile,'w') as fid:
-                pickle.dump(opts,fid)
-                pickle.dump(sgd.costt,fid)
-                nn.toFile(fid)
-            if evaluate_accuracy_while_training:
-
-                #print "testing on training set real quick"
-                #train_accuracies.append(test(opts.outFile,"train",word2vecs,opts.model,trainTrees))
-                #print "testing on dev set real quick"
-                #dev_accuracies.append(test(opts.outFile,"dev",opts.model,devTrees))
-                evl = test(opts.outFile,"dev",word2vecs,opts.model,devTrees)
-                dev_pearsons.append(evl[0])
-                dev_spearmans.append(evl[1])
-
-                # because tesing need to forward propogation, so clear the fprop flags in trees and dev_trees
-                for tree in trainTrees:
-                    tree.resetFinished()
-                for tree in devTrees:
-                    tree.resetFinished()
-                #print "fprop in trees cleared"
-
-        if evaluate_accuracy_while_training:
-            #train_errors = [ 1-acc for acc in train_accuracies]
-            #dev_errors = [1-acc for acc in dev_accuracies]
-            #print "train accuracies", train_accuracies
-            #print "dev accuracies",dev_accuracies
-            print "dev pearsons", dev_pearsons
-            print "dev spearmanr", dev_spearmans
-        """
-
-def test(netFile,dataSet, word2vecs,model='RNN', trees=None):
-    if trees==None:
-        trees = tr.loadTrees(dataSet)
-
-    assert netFile is not None, "Must give model to test"
-
-    #print "Testing netFile %s"%netFile
-
-    with open(netFile,'r') as fid:
-        opts = pickle.load(fid)
-        _ = pickle.load(fid)
-        
-        if(model=='RNN'):
-            nn = RNN(opts.relNum, opts.wvecDim,opts.outputDim,opts.numWords,opts.minibatch)
-        else:
-            raise '%s is not a valid neural network so far only RNTN, RNN, RNN2, RNN3, and DCNN'%opts.model
-        
-        nn.initParams(word2vecs)
-        nn.fromFile(fid)
-
-    #print "Testing %s..."%model
-    cost, grad, correct, guess= nn.costAndGrad(trees,test=True)
-    print "Cost %f"%cost
-    """
-    correct_sum = 0
-    total = len(trees)
-    for i in xrange(0,len(correct)):        
-        correct_sum+=(guess[i]==correct[i])
-        
-    print "Cost %f, Acc %f"%(cost,correct_sum/float(total))
-    return correct_sum/float(total)
-    """
-    print "Pearson correlation %f"%(pearsonr(correct,guess)[0])
-    print "Spearman correlation %f"%(spearmanr(correct,guess)[0])
-    return pearsonr(correct,guess)[0],spearmanr(correct,guess)[0]
-
-
-if __name__=='__main__':
-    run()
 
 
