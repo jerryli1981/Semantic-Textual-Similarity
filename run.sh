@@ -21,10 +21,7 @@ outfile="models/${model}_wvecDim_${wvecDim}_step_${step}.bin"
 
 echo $outfile
 
-########
-#python runNNet.py --step $step --epochs $epochs --outFile $outfile \
-#                  --outputDim 5 --wvecDim $wvecDim --model $model 
+python runNNet.py --step $step --epochs $epochs --outFile $outfile \
+	                  --outputDim 5 --wvecDim $wvecDim --model $model 
 
-python runNNetMultiProcess.py --step $step --epochs $epochs --outFile $outfile \
-                  --outputDim 5 --wvecDim $wvecDim --model $model 
 
