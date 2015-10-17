@@ -195,6 +195,19 @@ def objAndGrad(data):
                                   scale*(model.dWs+model.rho*model.Ws),scale*model.dbs]
         """
         return 0,0
+
+def par_objective(trainTrees,i,n,batch_size,hparams,params,grads):
+    pool = Pool(processes = 4)
+    trees = trainTrees[i:i+batch_size]
+    split_data = [trees[j:j+n] for j in range(0,batch_size,n)]
+    to_map = []
+    for item in split_data:
+        to_map.append((hparams, params, grads, item))
+
+    result = pool.map(objAndGrad,to_map)
+    pool.close()
+    pool.join()
+
 def run(args=None):
     usage = "usage : %prog [options]"
     parser = optparse.OptionParser(usage=usage)
@@ -280,20 +293,14 @@ def run(args=None):
         for e in range(opts.epochs):
             start = time.time()
             print "Running epoch %d"%e
-            pool = Pool(processes = num_proc)
+            
             for i in xrange(0,m-batch_size+1,batch_size):
-                
-                split_data = [trainTrees[i:i+n] for i in range(0,batch_size,n)]
-                to_map = []
-                for item in split_data:
-                    to_map.append((hparams, params, grads, item))
 
-                result = pool.map(objAndGrad,to_map)
-                pool.join()
+                par_objective(trainTrees,i,n,batch_size,hparams,params,grads)
 
             end = time.time()
             print "Time per epoch : %f"%(end-start)
-            pool.close()
+            
 
             with open(opts.outFile,'w') as fid:
                 pickle.dump(opts,fid)
