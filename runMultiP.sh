@@ -9,9 +9,10 @@ set -x
 # training params
 epochs=200
 step=1e-2
-wvecDim=250
-numProcess=4
-miniBatch=10
+numLabels=5
+wvecDim=100
+numProcess=6
+miniBatch=300
 
 model="RNN" #either RNN, RNN2, RNN3, RNTN, or DCNN
 
@@ -24,5 +25,5 @@ outfile="models/${model}_wvecDim_${wvecDim}_step_${step}_multiP.bin"
 echo $outfile
 
 python runNNetMultiProcess.py --step $step --epochs $epochs --outFile $outfile \
-                  				--outputDim 5 --minibatch $miniBatch --numProcess $numProcess --wvecDim $wvecDim --model $model 
+                  				--outputDim $numLabels --minibatch $miniBatch --numProcess $numProcess --wvecDim $wvecDim --model $model 
 
