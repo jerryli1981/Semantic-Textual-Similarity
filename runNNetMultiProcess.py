@@ -271,6 +271,27 @@ def costAndGrad_MultiP(numProc, batchData, hparams, params, miniBatchSize):
 
     return cost, (dL, dWR, dWV, db, dWs, dbs)
 
+class Adagrad(): 
+
+    def __init__(self, dim):
+        self.dim = dim
+        self.eps = 1e-3
+
+        # initial learning rate
+        self.learning_rate = 0.05
+
+        # stores sum of squared gradients 
+        self.h = np.zeros(self.dim)
+
+    def rescale_update(self, gradient):
+        curr_rate = np.zeros(self.h.shape)
+        self.h += gradient ** 2
+        curr_rate = self.learning_rate / (np.sqrt(self.h) + self.eps)
+        return curr_rate * gradient
+
+    def reset_weights(self):
+        self.h = np.zeros(self.dim)
+
 #Minbatch stochastic gradient descent
 def sgd(trainData, alpha, batchSize, numProc, hparams, r_params):
 
@@ -285,11 +306,20 @@ def sgd(trainData, alpha, batchSize, numProc, hparams, r_params):
     epsilon = 1e-8
     gradt = [epsilon + np.zeros(W.shape) for W in stack]
 
+    ag = Adagrad(r_params.shape)
+
     for batchData in batches:
 
-
-
         cost, grad = costAndGrad_MultiP(numProc, batchData, hparams, r_params, miniBatchSize)
+
+       
+        """
+        r_grad = roll_params(grad)
+
+        update = ag.rescale_update(r_grad)
+
+        r_params = r_params - update
+        """
 
         # trace = trace+grad.^2
         gradt[1:] = [gt+g**2 for gt,g in zip(gradt[1:],grad[1:])]

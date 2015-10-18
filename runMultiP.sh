@@ -24,6 +24,6 @@ outfile="models/${model}_wvecDim_${wvecDim}_step_${step}_multiP.bin"
 
 echo $outfile
 
-python runNNetMultiProcess.py --step $step --epochs $epochs --outFile $outfile \
+python -u runNNetMultiProcess.py --step $step --epochs $epochs --outFile $outfile \
                   				--outputDim $numLabels --minibatch $miniBatch --numProcess $numProcess --wvecDim $wvecDim --model $model 
 
