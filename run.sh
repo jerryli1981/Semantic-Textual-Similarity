@@ -21,7 +21,7 @@ outfile="models/${model}_wvecDim_${wvecDim}_step_${step}.bin"
 
 echo $outfile
 
-python runNNet.py --step $step --epochs $epochs --outFile $outfile \
+python -u runNNet.py --step $step --epochs $epochs --outFile $outfile \
 	                  --outputDim 5 --wvecDim $wvecDim --model $model 
 
 
