@@ -1,12 +1,9 @@
 import optparse
 import cPickle as pickle
 
-from rnn import RNN
-
 import dependency_tree as tr
 import time
 import numpy as np
-
 
 import collections
 import random # for random shuffle train data
@@ -15,11 +12,52 @@ from scipy.stats import spearmanr
 from scipy.stats import entropy
 import pdb
 
+
 from multiprocessing import Pool
+
+
+def initParams(word2vecs, hparams):
+
+    relNum, wvecDim, outputDim, numWords = hparams
+
+    #generate the same random number
+    np.random.seed(12341)
+
+    r = np.sqrt(6)/np.sqrt(201)
+
+    # Word vectors
+    #self.L = 0.01*np.random.randn(self.wvecDim,self.numWords)
+    L = word2vecs[:wvecDim, :]
+
+    # Hidden layer parameters 
+    #self.WV = 0.01*np.random.randn(self.wvecDim, self.wvecDim)
+    WV = np.random.rand(wvecDim, wvecDim) * 2 * r - r
+
+    # Relation layer parameters
+    #self.WR = 0.01*np.random.randn(self.relNum, self.wvecDim, self.wvecDim)
+    WR = np.random.rand(relNum, wvecDim, wvecDim) * 2 * r -r
+
+    b = np.zeros((wvecDim))
+
+
+    # Softmax weights
+    #self.Ws = 0.01*np.random.randn(self.outputDim,self.wvecDim) # note this is " U " in the notes and the handout.. there is a reason for the change in notation
+    Ws = np.random.rand(outputDim, wvecDim)
+    bs = np.zeros((outputDim))
+
+
+    #here self.WR should ahead of self.WV, unless gradient check will fail on 
+    #non-broadcastable output operand with shape (1) doesn't match the broadcast shape (1,1)
+    return (L, WR, WV, b, Ws, bs)
+
+def roll_params(params):
+    L, WR, WV, b, Ws, bs = params
+    return np.concatenate((L.ravel(), WR.ravel(), WV.ravel(), b.ravel(), Ws.ravel(), bs.ravel()))
+
 
 def unroll_params(arr, hparams):
 
-    relNum, wvecDim, outputDim, numWords, rho = hparams
+    relNum, wvecDim, outputDim, numWords = hparams
 
     ind = 0
 
@@ -45,13 +83,9 @@ def unroll_params(arr, hparams):
     return (L, WR, WV, b, Ws, bs)
 
 
-def roll_params(params):
-    L, WR, WV, b, Ws, bs = params
-    return np.concatenate((L.ravel(), WR.ravel(), WV.ravel(), b.ravel(), Ws.ravel(), bs.ravel()))
-
 def init_grads(hparams):
 
-    relNum, wvecDim, outputDim, numWords, rho = hparams
+    relNum, wvecDim, outputDim, numWords = hparams
 
     #create with default_factory : defaultVec = lambda : np.zeros((wvecDim,))
     #make the defaultdict useful for building a dictionary of np array
@@ -77,14 +111,14 @@ def softmax(x):
 
     return x
 
-def forwardProp(hparams, params, tree):
+def forwardProp(hparams, params, tree, test=False):
 
         #because many training epoch. 
         tree.resetFinished()
 
         L, WR, WV, b, Ws, bs = params
 
-        relNum, wvecDim, outputDim, numWords, rho = hparams
+        relNum, wvecDim, outputDim, numWords = hparams
 
         cost  =  0.0 
 
@@ -151,10 +185,14 @@ def forwardProp(hparams, params, tree):
         
         #correctLabel = np.argmax(target_distribution)
         #guessLabel = np.argmax(predicted_distribution)
-        #predictScore = predicted_distribution.reshape(outputDim,).dot(np.array([1,2,3,4,5]))
+
+        predictScore = predicted_distribution.reshape(outputDim,).dot(np.array([1,2,3,4,5]))
         #return cost, predictScore, tree.score
 
-        return cost
+        if test:
+            return cost, predictScore, tree.score
+        else:
+            return cost
 
 def backProp(grads, params, tree):
 
@@ -215,7 +253,7 @@ def costAndGrad(data):
     return cost, r_grads
 
 
-def costAndGrad_MultiP(numProc, batchData, hparams, params, miniBatchSize):
+def costAndGrad_MultiP(numProc, batchData, hparams, params, miniBatchSize, rho=1e-4):
     pool = Pool(processes = numProc)
 
     oparams = (hparams, params)
@@ -244,7 +282,6 @@ def costAndGrad_MultiP(numProc, batchData, hparams, params, miniBatchSize):
 
     L, WR, WV, b, Ws, bs = unroll_params(params, hparams)
     
-    rho = hparams[4]
     # Add L2 Regularization 
     reg_cost = 0.
     reg_cost += (rho/2)*np.sum(WV**2)
@@ -271,31 +308,11 @@ def costAndGrad_MultiP(numProc, batchData, hparams, params, miniBatchSize):
 
     return cost, (dL, dWR, dWV, db, dWs, dbs)
 
-class Adagrad(): 
-
-    def __init__(self, dim):
-        self.dim = dim
-        self.eps = 1e-3
-
-        # initial learning rate
-        self.learning_rate = 0.05
-
-        # stores sum of squared gradients 
-        self.h = np.zeros(self.dim)
-
-    def rescale_update(self, gradient):
-        curr_rate = np.zeros(self.h.shape)
-        self.h += gradient ** 2
-        curr_rate = self.learning_rate / (np.sqrt(self.h) + self.eps)
-        return curr_rate * gradient
-
-    def reset_weights(self):
-        self.h = np.zeros(self.dim)
-
 #Minbatch stochastic gradient descent
 def sgd(trainData, alpha, batchSize, numProc, hparams, r_params):
 
     random.shuffle(trainData)
+
     batches = [trainData[x : x + batchSize] for x in xrange(0, len(trainData), batchSize)]
 
     miniBatchSize = batchSize / numProc
@@ -306,20 +323,9 @@ def sgd(trainData, alpha, batchSize, numProc, hparams, r_params):
     epsilon = 1e-8
     gradt = [epsilon + np.zeros(W.shape) for W in stack]
 
-    ag = Adagrad(r_params.shape)
-
     for batchData in batches:
 
         cost, grad = costAndGrad_MultiP(numProc, batchData, hparams, r_params, miniBatchSize)
-
-       
-        """
-        r_grad = roll_params(grad)
-
-        update = ag.rescale_update(r_grad)
-
-        r_params = r_params - update
-        """
 
         # trace = trace+grad.^2
         gradt[1:] = [gt+g**2 for gt,g in zip(gradt[1:],grad[1:])]
@@ -337,15 +343,15 @@ def sgd(trainData, alpha, batchSize, numProc, hparams, r_params):
         scale = -alpha
 
 
-        stack = list(stack)
-        stack[1:] = [P+scale*dP for P,dP in zip(stack[1:],update[1:])]
+        params = list(unroll_params(r_params, hparams))
+        params[1:] = [P-scale*dP for P,dP in zip(params[1:],update[1:])]
 
         # handle dictionary update sparsely
         dL = update[0]
         for j in range(hparams[3]):
-            stack[0][:,j] += scale*dL[:,j]
+            params[0][:,j] -= scale*dL[:,j]
 
-        r_params = roll_params(stack)
+        r_params = roll_params(params)
 
             
 def run(args = None):
@@ -397,19 +403,15 @@ def run(args = None):
 
         trainTrees = tr.loadTrees(c, "train")
         devTrees = tr.loadTrees(c, "dev")
+
         print "train size %s"%len(trainTrees)
         print "dev size %s"%len(devTrees)
 
-        nn = RNN(opts.relNum, opts.wvecDim,opts.outputDim,opts.numWords,opts.minibatch)
+
+        hparams = (opts.relNum, opts.wvecDim, opts.outputDim, opts.numWords)
+        r_params = roll_params(initParams(word2vecs, hparams))
+
         
-        nn.initParams(word2vecs)
-
-        params = (nn.L, nn.WR, nn.WV, nn.b, nn.Ws, nn.bs)
-
-        hparams = (nn.relNum, nn.wvecDim, nn.outputDim, nn.numWords, nn.rho)
-
-        r_params = roll_params(params)
- 
         for e in range(opts.epochs):
             print "Running epoch %d"%e
             start = time.time()
@@ -417,12 +419,11 @@ def run(args = None):
             end = time.time()
             print "Time per epoch : %f"%(end-start)
 
-
-            nn.stack = unroll_params(r_params,hparams)
+            stack = unroll_params(r_params,hparams)
 
             with open(opts.outFile,'w') as fid:
                 pickle.dump(opts,fid)
-                nn.toFile(fid)
+                pickle.dump(stack,fid)
 
             if evaluate_accuracy_while_training:
 
@@ -451,154 +452,27 @@ def test(netFile,dataSet, word2vecs,model='RNN', trees=None):
 
     with open(netFile,'r') as fid:
         opts = pickle.load(fid)
+        params = pickle.load(fid)
         
-        nn = RNN(opts.relNum, opts.wvecDim,opts.outputDim,opts.numWords,opts.minibatch)
-        
-        nn.initParams(word2vecs)
-
-        nn.fromFile(fid)
-
     #print "Testing %s..."%model
-    cost, grad, correct, guess= nn.costAndGrad(trees,test=True)
-    print "Cost %f"%cost
-    """
-    correct_sum = 0
-    total = len(trees)
-    for i in xrange(0,len(correct)):        
-        correct_sum+=(guess[i]==correct[i])
-        
-    print "Cost %f, Acc %f"%(cost,correct_sum/float(total))
-    return correct_sum/float(total)
-    """
-    print "Pearson correlation %f"%(pearsonr(correct,guess)[0])
-    print "Spearman correlation %f"%(spearmanr(correct,guess)[0])
-    return pearsonr(correct,guess)[0],spearmanr(correct,guess)[0]
+    #def forwardProp(hparams, params, tree, test=False):
+    hparams = (opts.relNum, opts.wvecDim, opts.outputDim, opts.numWords)
+    cost = 0
+    corrects = []
+    guesses = []
+    for tree in trees:
+        c, correct, guess= forwardProp(hparams, params, tree, test=True)
+        cost += c
+        corrects.append(correct)
+        guesses.append(guess)
 
-
-
-def check_grad(args = None,epsilon=1e-6):
-
-    usage = "usage : %prog [options]"
-    parser = optparse.OptionParser(usage=usage)
-
-    parser.add_option("--test",action="store_true",dest="test",default=False)
-
-    # Optimizer
-    parser.add_option("--minibatch",dest="minibatch",type="int",default=30)
-    parser.add_option("--optimizer",dest="optimizer",type="string",
-        default="adagrad")
-
-    parser.add_option("--epochs",dest="epochs",type="int",default=50)
-    parser.add_option("--step",dest="step",type="float",default=1e-2)
-
-    parser.add_option("--outputDim",dest="outputDim",type="int",default=5)
-    parser.add_option("--wvecDim",dest="wvecDim",type="int",default=30)
-
+    print "Cost %f"%(cost/len(trees))
     
-    parser.add_option("--outFile",dest="outFile",type="string",
-        default="models/test.bin")
-    parser.add_option("--inFile",dest="inFile",type="string",
-        default="models/test.bin")
-    parser.add_option("--data",dest="data",type="string",default="train")
-
-    parser.add_option("--model",dest="model",type="string",default="RNN")
-
-    parser.add_option("--crossValidation",dest="crossValidation",type="int",default=10)
-
-    parser.add_option("--numProcess",dest="numProcess",type="int",default=4)
-
-    (opts, args)=parser.parse_args(args)
-
-    opts.numWords = len(tr.loadWordMap())
-
-    opts.relNum = len(tr.loadRelMap())
-    
-    word2vecs = tr.loadWord2VecMap()
-
-    nn = RNN(opts.relNum, opts.wvecDim,opts.outputDim,opts.numWords,opts.minibatch)
-        
-    nn.initParams(word2vecs)
-
-    hparams = (nn.relNum, nn.wvecDim, nn.outputDim, nn.numWords, nn.rho)
-
-    stack = (nn.L, nn.WR, nn.WV, nn.b, nn.Ws, nn.bs)
-
-    r_params = roll_params(stack)
-
-    trainTrees = tr.loadTrees(1, "train")
-    mbData = trainTrees[:opts.minibatch]
-
-    miniBatchSize = opts.minibatch / opts.numProcess
-
-    cost, grad = costAndGrad_MultiP(opts.numProcess, mbData, hparams, r_params, miniBatchSize)
-
-    epsilon = 1e-8
-
-    gradt = [epsilon + np.zeros(W.shape) for W in stack]
-
-    # trace = trace+grad.^2
-    gradt[1:] = [gt+g**2 for gt,g in zip(gradt[1:],grad[1:])]
-    # update = grad.*trace.^(-1/2)
-    update =  [g*(1./np.sqrt(gt)) for gt,g in zip(gradt[1:],grad[1:])]
-    # handle dictionary separately
-    dL = grad[0]
-    dLt = gradt[0]
-    for j in range(hparams[3]):
-        dLt[:,j] = dLt[:,j] + dL[:,j]**2
-        dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
-
-    update = [dL] + update
-
-    scale = -opts.step
+    print "Pearson correlation %f"%(pearsonr(corrects,guesses)[0])
+    print "Spearman correlation %f"%(spearmanr(corrects,guesses)[0])
+    return pearsonr(corrects,guesses)[0],spearmanr(corrects,guesses)[0]
 
 
-    stack = list(stack)
-    stack[1:] = [P+scale*dP for P,dP in zip(stack[1:],update[1:])]
-
-    err1 = 0.0
-    count = 0.0
-
-    print "Checking dW... (might take a while)"
-    for W,dW in zip(stack[1:],grad[1:]):
-        W = W[...,None,None] # add dimension since bias is flat
-        dW = dW[...,None,None] 
-        for i in xrange(W.shape[0]):
-            for j in xrange(W.shape[1]):
-                for k in xrange(W.shape[2]):
-                    W[i,j,k] += epsilon
-                    costP,_ = costAndGrad_MultiP(opts.numProcess, mbData, hparams, r_params, miniBatchSize)
-                    W[i,j,k] -= epsilon
-                    numGrad = (costP - cost)/epsilon
-                    err = np.abs(dW[i,j,k] - numGrad)
-                    #print "Analytic %.9f, Numerical %.9f, Relative Error %.9f"%(dW[i,j,k],numGrad,err)
-                    err1+=err
-                    count+=1
-    if 0.001 > err1/count:
-        print "Grad Check Passed for dW"
-    else:
-        print "Grad Check Failed for dW: Sum of Error = %.9f" % (err1/count)
-
-    # check dL separately since dict
-    dL = grad[0]
-    L = nn.stack[0]
-    err2 = 0.0
-    count = 0.0
-    print "Checking dL..."
-    for j in range(hparams[3]):
-        for i in xrange(L.shape[0]):
-            L[i,j] += epsilon
-            costP,_ = nn.costAndGrad(mbData)
-            L[i,j] -= epsilon
-            numGrad = (costP - cost)/epsilon
-            err = np.abs(dL[i,j] - numGrad)
-            #print "Analytic %.9f, Numerical %.9f, Relative Error %.9f"%(dL[j][i],numGrad,err)
-            err2+=err
-            count+=1
-
-    if 0.001 > err2/count:
-        print "Grad Check Passed for dL"
-    else:
-        print "Grad Check Failed for dL: Sum of Error = %.9f" % (err2/count)
 
 if __name__=='__main__':
 
