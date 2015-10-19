@@ -344,12 +344,12 @@ def sgd(trainData, alpha, batchSize, numProc, hparams, r_params):
 
 
         params = list(unroll_params(r_params, hparams))
-        params[1:] = [P-scale*dP for P,dP in zip(params[1:],update[1:])]
+        params[1:] = [P+scale*dP for P,dP in zip(params[1:],update[1:])]
 
         # handle dictionary update sparsely
         dL = update[0]
         for j in range(hparams[3]):
-            params[0][:,j] -= scale*dL[:,j]
+            params[0][:,j] += scale*dL[:,j]
 
         r_params = roll_params(params)
 
@@ -398,8 +398,8 @@ def run(args = None):
 
         print "CV: %s"%c
 
-        dev_pearsons = []
-        dev_spearmans = []
+        #dev_pearsons = []
+        #dev_spearmans = []
 
         trainTrees = tr.loadTrees(c, "train")
         devTrees = tr.loadTrees(c, "dev")
@@ -432,8 +432,8 @@ def run(args = None):
                 #print "testing on dev set real quick"
                 #dev_accuracies.append(test(opts.outFile,"dev",opts.model,devTrees))
                 evl = test(opts.outFile,"dev",word2vecs,opts.model,devTrees)
-                dev_pearsons.append(evl[0])
-                dev_spearmans.append(evl[1])
+                #dev_pearsons.append(evl[0])
+                #dev_spearmans.append(evl[1])
 
                 # because tesing need to forward propogation, so clear the fprop flags in trees and dev_trees
                 for tree in trainTrees:
@@ -466,11 +466,11 @@ def test(netFile,dataSet, word2vecs,model='RNN', trees=None):
         corrects.append(correct)
         guesses.append(guess)
 
-    print "Cost %f"%(cost/len(trees))
-    
+    print "Cost %f"%(cost/len(trees))    
     print "Pearson correlation %f"%(pearsonr(corrects,guesses)[0])
-    print "Spearman correlation %f"%(spearmanr(corrects,guesses)[0])
-    return pearsonr(corrects,guesses)[0],spearmanr(corrects,guesses)[0]
+
+    #print "Spearman correlation %f"%(spearmanr(corrects,guesses)[0])
+    #return pearsonr(corrects,guesses)[0],spearmanr(corrects,guesses)[0]
 
 
 
