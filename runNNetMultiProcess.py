@@ -10,7 +10,7 @@ import random # for random shuffle train data
 from scipy.stats import pearsonr
 from scipy.stats import spearmanr
 from scipy.stats import entropy
-import pdb
+
 
 
 from multiprocessing import Pool
@@ -160,10 +160,20 @@ def forwardProp(hparams, params, tree, test=False):
                     to_do.append(curr)
         
         # compute target distribution   
+        """
         if tree.score == 5.0:
-            tree.score = 4.99999 
-        
+            tree.score = 4.99999
+        """ 
+
+        tree.score = 0.25 * (tree.score-1)
+
+        sim = tree.score * 4 + 1
+        ceil = np.ceil(sim)
+        floor = np.floor(sim)
+
         target_distribution = np.zeros((1, outputDim))
+
+        """
         for i in range(outputDim):
             score_floor = np.floor(tree.score)
             if i == score_floor + 1:
@@ -172,14 +182,23 @@ def forwardProp(hparams, params, tree, test=False):
                 target_distribution[0,i] = score_floor - tree.score + 1
             else:
                 target_distribution[0,i] = 0  
-        
+        """
+
+
+        for i in range(outputDim):
+            if i == ceil and ceil == floor:
+                target_distribution[0, i] = 1
+            elif i == floor:
+                target_distribution[0,i] = ceil - sim
+            elif i == ceil:
+                target_distribution[0,i] = sim - floor
 
         predicted_distribution= softmax((np.dot(Ws, tree.root.hAct) + bs).reshape(1, outputDim))
         tree.root.pd = predicted_distribution.reshape(outputDim)
         tree.root.td = target_distribution.reshape(outputDim)
 
-        #cost = -np.dot(target_distribution, np.log(predicted_distribution).T)
-        cost = entropy(target_distribution.reshape(outputDim,),predicted_distribution.reshape(outputDim,))
+        cost = -np.dot(target_distribution, np.log(predicted_distribution).T)
+        #cost = entropy(target_distribution.reshape(outputDim,),predicted_distribution.reshape(outputDim,))
 
         #assert cost1[0,0] == cost2, "they should equal"
         
@@ -292,6 +311,8 @@ def costAndGrad_MultiP(numProc, batchData, hparams, params, miniBatchSize, rho=1
 
     dL, dWR, dWV, db, dWs, dbs = unroll_params(grad,hparams)
 
+
+    """
     scale = (1./len(batchData))
     for v in range(hparams[3]):
         dL[:,v] *= scale
@@ -303,6 +324,7 @@ def costAndGrad_MultiP(numProc, batchData, hparams, params, miniBatchSize, rho=1
     db = scale*db
     dWs = scale*(dWs+rho*Ws)
     dbs = scale*dbs
+    """
     
     #r_grads = roll_params((dL, dWR, dWV, db, dWs, dbs))
 
@@ -321,6 +343,7 @@ def sgd(trainData, alpha, batchSize, numProc, hparams, r_params):
 
     #print "Using adagrad..."
     epsilon = 1e-8
+
     gradt = [epsilon + np.zeros(W.shape) for W in stack]
 
     for batchData in batches:
@@ -340,9 +363,10 @@ def sgd(trainData, alpha, batchSize, numProc, hparams, r_params):
 
         update = [dL] + update
 
+        
         scale = -alpha
 
-
+        scale = 0.1
         params = list(unroll_params(r_params, hparams))
         params[1:] = [P+scale*dP for P,dP in zip(params[1:],update[1:])]
 
@@ -354,7 +378,7 @@ def sgd(trainData, alpha, batchSize, numProc, hparams, r_params):
         r_params = roll_params(params)
 
             
-def run(args = None):
+def train(args = None):
     usage = "usage : %prog [options]"
     parser = optparse.OptionParser(usage=usage)
 
@@ -394,74 +418,58 @@ def run(args = None):
     
     word2vecs = tr.loadWord2VecMap()
 
-    for c in range(opts.crossValidation):
+    trainTrees = tr.loadTrees("train")
+    devTrees = tr.loadTrees("dev")
 
-        print "CV: %s"%c
+    print "train size %s"%len(trainTrees)
+    print "dev size %s"%len(devTrees)
 
-        #dev_pearsons = []
-        #dev_spearmans = []
-
-        trainTrees = tr.loadTrees(c, "train")
-        devTrees = tr.loadTrees(c, "dev")
-
-        print "train size %s"%len(trainTrees)
-        print "dev size %s"%len(devTrees)
-
-
-        hparams = (opts.relNum, opts.wvecDim, opts.outputDim, opts.numWords)
-        r_params = roll_params(initParams(word2vecs, hparams))
-
-        
-        for e in range(opts.epochs):
-            print "Running epoch %d"%e
-            start = time.time()
-            sgd(trainTrees, opts.step, opts.minibatch, opts.numProcess, hparams, r_params)
-            end = time.time()
-            print "Time per epoch : %f"%(end-start)
-
-            stack = unroll_params(r_params,hparams)
-
-            with open(opts.outFile,'w') as fid:
-                pickle.dump(opts,fid)
-                pickle.dump(stack,fid)
-
-            if evaluate_accuracy_while_training:
-
-                #print "testing on training set real quick"
-                #train_accuracies.append(test(opts.outFile,"train",word2vecs,opts.model,trainTrees))
-                #print "testing on dev set real quick"
-                #dev_accuracies.append(test(opts.outFile,"dev",opts.model,devTrees))
-                evl = test(opts.outFile,"dev",word2vecs,opts.model,devTrees)
-                #dev_pearsons.append(evl[0])
-                #dev_spearmans.append(evl[1])
-
-                # because tesing need to forward propogation, so clear the fprop flags in trees and dev_trees
-                for tree in trainTrees:
-                    tree.resetFinished()
-                for tree in devTrees:
-                    tree.resetFinished()
-                #print "fprop in trees cleared"
-
-def test(netFile,dataSet, word2vecs,model='RNN', trees=None):
-    if trees==None:
-        trees = tr.loadTrees(dataSet)
-
-    assert netFile is not None, "Must give model to test"
-
-    #print "Testing netFile %s"%netFile
-
-    with open(netFile,'r') as fid:
-        opts = pickle.load(fid)
-        params = pickle.load(fid)
-        
-    #print "Testing %s..."%model
-    #def forwardProp(hparams, params, tree, test=False):
     hparams = (opts.relNum, opts.wvecDim, opts.outputDim, opts.numWords)
+    r_params = roll_params(initParams(word2vecs, hparams))
+
+    
+    for e in range(opts.epochs):
+        print "Running epoch %d"%e
+        start = time.time()
+        sgd(trainTrees, opts.step, opts.minibatch, opts.numProcess, hparams, r_params)
+        end = time.time()
+        print "Time per epoch : %f"%(end-start)
+
+        """
+        stack = unroll_params(r_params,hparams)
+
+        with open(opts.outFile,'w') as fid:
+            pickle.dump(opts,fid)
+            pickle.dump(stack,fid)
+        """
+
+        if evaluate_accuracy_while_training:
+
+            #print "testing on training set real quick"
+            #train_accuracies.append(test(opts.outFile,"train",word2vecs,opts.model,trainTrees))
+            #print "testing on dev set real quick"
+            #dev_accuracies.append(test(opts.outFile,"dev",opts.model,devTrees))
+            evl = test(devTrees, hparams, r_params)
+            #dev_pearsons.append(evl[0])
+            #dev_spearmans.append(evl[1])
+
+            # because tesing need to forward propogation, so clear the fprop flags in trees and dev_trees
+            for tree in trainTrees:
+                tree.resetFinished()
+            for tree in devTrees:
+                tree.resetFinished()
+            #print "fprop in trees cleared"
+
+def test(trees, hparams, r_params):
+
+    params = unroll_params(r_params,hparams)
+        
+    opts.relNum, opts.wvecDim, opts.outputDim, opts.numWords = hparams
     cost = 0
     corrects = []
     guesses = []
     for tree in trees:
-        c, correct, guess= forwardProp(hparams, params, tree, test=True)
+        c, guess, correct= forwardProp(hparams, params, tree, test=True)
         cost += c
         corrects.append(correct)
         guesses.append(guess)
@@ -472,8 +480,6 @@ def test(netFile,dataSet, word2vecs,model='RNN', trees=None):
     #print "Spearman correlation %f"%(spearmanr(corrects,guesses)[0])
     #return pearsonr(corrects,guesses)[0],spearmanr(corrects,guesses)[0]
 
-
-
 if __name__=='__main__':
 
     __DEBGU__ = False
@@ -481,7 +487,7 @@ if __name__=='__main__':
         import pdb
         pdb.set_trace()
 
-    run()
+    train()
 
 
 

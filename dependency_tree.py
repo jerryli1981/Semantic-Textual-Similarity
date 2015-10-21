@@ -214,31 +214,62 @@ def loadWord2VecMap():
         return pickle.load(fid)
 
 
-def buildWordRelMap():
+def buildWordRelMap(train=None, dev=None, test=None):
     """
     Builds map of all words in training set
     to integer values.
     """
     from collections import defaultdict
     import cPickle as pickle
-    file = 'training_dataset'
     print "Reading dataset to build word map.."
     trees = []
-    with open(file,'r') as fid:
-        dataset = pickle.load(fid)
-        for index, datum in enumerate(dataset):
-            if index %1000 == 0 :
-                print index
-            first_parse, second_parse = datum["parse"]
-            score = float(datum["score"])
-            first_depTree = DTree(first_parse, score = score)
-            second_depTree = DTree(second_parse,score = score)
-            mergedTree, isDag = first_depTree.mergeWith(second_depTree)
-            if not isDag:
-                print "merge is not dag"
-                continue
-            trees.append(mergedTree)
+    if train != None:
+        with open(train,'r') as fid:
+            dataset = pickle.load(fid)
+            for index, datum in enumerate(dataset):
+                if index %1000 == 0 :
+                    print index
+                first_parse, second_parse = datum["parse"]
+                score = float(datum["score"])
+                first_depTree = DTree(first_parse, score = score)
+                second_depTree = DTree(second_parse,score = score)
+                mergedTree, isDag = first_depTree.mergeWith(second_depTree)
+                if not isDag:
+                    print "merge is not dag"
+                    continue
+                trees.append(mergedTree)
+    if dev != None:
+        with open(dev,'r') as fid:
+            dataset = pickle.load(fid)
+            for index, datum in enumerate(dataset):
+                if index %1000 == 0 :
+                    print index
+                first_parse, second_parse = datum["parse"]
+                score = float(datum["score"])
+                first_depTree = DTree(first_parse, score = score)
+                second_depTree = DTree(second_parse,score = score)
+                mergedTree, isDag = first_depTree.mergeWith(second_depTree)
+                if not isDag:
+                    print "merge is not dag"
+                    continue
+                trees.append(mergedTree)
 
+    if test != None:
+        with open(test,'r') as fid:
+            dataset = pickle.load(fid)
+            for index, datum in enumerate(dataset):
+                if index %1000 == 0 :
+                    print index
+                first_parse, second_parse = datum["parse"]
+                score = float(datum["score"])
+                first_depTree = DTree(first_parse, score = score)
+                second_depTree = DTree(second_parse,score = score)
+                mergedTree, isDag = first_depTree.mergeWith(second_depTree)
+                if not isDag:
+                    print "merge is not dag"
+                    continue
+                trees.append(mergedTree)
+    
     print "Counting words to give each word an index.."
     
     words = defaultdict(int)
@@ -266,7 +297,7 @@ def buildWordRelMap():
 
 
 
-def loadTrees(cv=None, dataSet='train'):
+def loadTrees(dataSet='train'):
     """
     Loads training trees. Maps leaf node words to word ids.
     """
@@ -274,10 +305,7 @@ def loadTrees(cv=None, dataSet='train'):
     wordMap = loadWordMap()
     relMap = loadRelMap()
     
-    if dataSet == "dev" or dataSet == "train":
-        file = 'training_dataset'
-    elif dataSet == "test":
-        file = 'testing_dataset'
+    file = dataSet+'_dataset'
 
     print "Loading %s dataset..."%dataSet
     trees = []
@@ -288,39 +316,17 @@ def loadTrees(cv=None, dataSet='train'):
                 #print index
 
             first_parse, second_parse = datum["parse"]
-            
-            if dataSet == "train":
-                split = int(datum["split"])
-                if split != cv:
-                    score = float(datum["score"])
-                    first_depTree = DTree(first_parse, score = score)
-                    second_depTree = DTree(second_parse,score = score)
-                    mergedTree, isDag = first_depTree.mergeWith(second_depTree)
-                    if not isDag:
-                        #print "merge is not dag"
-                        continue
-                    trees.append(mergedTree)    
-                
-            elif dataSet == "dev":
-                split = int(datum["split"])
-                if split == cv:
-                    score = float(datum["score"])
-                    first_depTree = DTree(first_parse, score = score)
-                    second_depTree = DTree(second_parse,score = score)
-                    mergedTree, isDag = first_depTree.mergeWith(second_depTree)
-                    if not isDag:
-                        #print "merge is not dag"
-                        continue
-                    trees.append(mergedTree)
-            else:
-                first_depTree = DTree(first_parse)
-                second_depTree = DTree(second_parse)
-                mergedTree, isDag = first_depTree.mergeWith(second_depTree)
-                if not isDag:
-                    #print "merge is not dag"
-                    continue
-                trees.append(mergedTree)
-                
+
+            score = float(datum["score"])
+            first_depTree = DTree(first_parse, score = score)
+            second_depTree = DTree(second_parse,score = score)
+            mergedTree, isDag = first_depTree.mergeWith(second_depTree)
+            if not isDag:
+                #print "merge is not dag"
+                continue
+            trees.append(mergedTree)            
+    
+
     for tree in trees:
         for node in tree.nodes:
             if node.word not in wordMap:
@@ -338,6 +344,7 @@ def loadTrees(cv=None, dataSet='train'):
     return trees
 
 def build_word2Vector_glove():
+    print "build word2vec"
 
     """
     Loads 300x1 word vecs from glove
@@ -392,6 +399,6 @@ if __name__=='__main__':
         import pdb
         pdb.set_trace()
 
-    buildWordRelMap()
+    buildWordRelMap("train_dataset","dev_dataset")
 
     build_word2Vector_glove()

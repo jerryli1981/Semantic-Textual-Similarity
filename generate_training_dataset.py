@@ -10,7 +10,7 @@ def clean_str(string):
     string = re.sub(r"\s{2,}", " ", string)       
     return string.strip()
 
-def build_training_data():
+def build_training_data_sts():
     parser = Parser() 
     folders = ['sts2012', 'sts2013', 'sts2014']
     pairSet = set()   
@@ -61,9 +61,20 @@ def build_training_data():
                                 }
                         dataset.append(datum)            
                         pairSet.add(pair)  
-    
-    with open("training_dataset","wb") as f:
-        cPickle.dump(dataset,f)
+
+    split = {}
+    for i in range(10):
+        train = []
+        dev = []
+        for datum in dataset:
+            if datum[split] == i:
+                dev.append(datum)
+            else:
+                train.append(datum)
+        split[i] = (train,dev)
+
+    with open("sts_datasets","wb") as f:
+        cPickle.dump(split,f)
 
 def build_training_data_sick():
     parser = Parser() 
@@ -111,7 +122,7 @@ def build_training_data_sick():
                         }
                 dataset.append(datum)            
 
-        with open(folder+"_dataset_sick","wb") as f:
+        with open(folder+"_dataset","wb") as f:
             cPickle.dump(dataset,f)
 
 if __name__ == "__main__":
