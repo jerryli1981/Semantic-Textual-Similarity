@@ -71,11 +71,11 @@ def build_training_data_sick():
     dataset = []
     index = 0
     for folder in folders:
-        as = "./sick/"+folder+"/a.txt"
-        bs = "./sick/"+folder+"/b.txt"
+        a_s = "./sick/"+folder+"/a.txt"
+        b_s = "./sick/"+folder+"/b.txt"
         sims = "./sick/"+folder+"/sim.txt"
         
-        with open(as, "rb") as f1, open(bs, "rb") as f2, open(sims, "rb") as f3:                            
+        with open(a_s, "rb") as f1, open(b_s, "rb") as f2, open(sims, "rb") as f3:                            
             for a, b, sim in zip(f1,f2,f3):
                 index += 1
                 if index % 200 == 0:
@@ -89,28 +89,26 @@ def build_training_data_sick():
                 if " " not in first_sent or " " not in second_sent:
                     continue
 
-                if pair not in pairSet:
-
-                    try:
-                        first_parse_output = parser.parseSentence(first_sent)
-                    except:
-                        print "first_sentence can't be parsing"
-                        #print first_sentence
-                        #traceback.print_exc()
-                        continue
-                    try:
-                        second_parse_output = parser.parseSentence(second_sent)
-                    except:
-                        print "second_sentence can't be parsing"
-                        #print second_sentence
-                        #traceback.print_exc()
-                        continue
-        
-                    datum = {   "score":sim.strip(), 
-                                "text": (first_sent, second_sent), 
-                                "parse":(first_parse_output, second_parse_output)
-                            }
-                    dataset.append(datum)            
+                try:
+                    first_parse_output = parser.parseSentence(first_sent)
+                except:
+                    print "first_sentence can't be parsing"
+                    #print first_sentence
+                    #traceback.print_exc()
+                    continue
+                try:
+                    second_parse_output = parser.parseSentence(second_sent)
+                except:
+                    print "second_sentence can't be parsing"
+                    #print second_sentence
+                    #traceback.print_exc()
+                    continue
+    
+                datum = {   "score":sim.strip(), 
+                            "text": (first_sent, second_sent), 
+                            "parse":(first_parse_output, second_parse_output)
+                        }
+                dataset.append(datum)            
 
     with open("training_dataset_sick","wb") as f:
         cPickle.dump(dataset,f)
@@ -121,5 +119,4 @@ if __name__ == "__main__":
         import pdb
         pdb.set_trace()
 
-    build_training_data()
-    
+    build_training_data_sick()
