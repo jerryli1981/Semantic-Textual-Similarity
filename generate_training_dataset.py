@@ -110,8 +110,8 @@ def build_training_data_sick():
                         }
                 dataset.append(datum)            
 
-    with open("training_dataset_sick","wb") as f:
-        cPickle.dump(dataset,f)
+        with open(folder+"_dataset_sick","wb") as f:
+            cPickle.dump(dataset,f)
 
 if __name__ == "__main__":
     _debug_ = False
