@@ -68,9 +68,10 @@ def build_training_data():
 def build_training_data_sick():
     parser = Parser() 
     folders = ['train', 'dev']
-    dataset = []
-    index = 0
+    
     for folder in folders:
+        index = 0
+        dataset = []
         a_s = "./sick/"+folder+"/a.txt"
         b_s = "./sick/"+folder+"/b.txt"
         sims = "./sick/"+folder+"/sim.txt"
