@@ -165,9 +165,7 @@ def forwardProp(hparams, params, tree, test=False):
             tree.score = 4.99999
         """ 
 
-        tree.score = 0.25 * (tree.score-1)
-
-        sim = tree.score * 4 + 1
+        sim = 0.25 * (tree.score-1) * 4 + 1
         ceil = np.ceil(sim)
         floor = np.floor(sim)
 
@@ -209,7 +207,7 @@ def forwardProp(hparams, params, tree, test=False):
         #return cost, predictScore, tree.score
 
         if test:
-            return cost, predictScore, tree.score
+            return cost, float("{0:.2f}".format(predictScore)), tree.score
         else:
             return cost
 
@@ -463,8 +461,7 @@ def train(args = None):
 def test(trees, hparams, r_params):
 
     params = unroll_params(r_params,hparams)
-        
-    opts.relNum, opts.wvecDim, opts.outputDim, opts.numWords = hparams
+
     cost = 0
     corrects = []
     guesses = []
@@ -474,6 +471,8 @@ def test(trees, hparams, r_params):
         corrects.append(correct)
         guesses.append(guess)
 
+    print corrects[:10]
+    print guesses[:10]
     print "Cost %f"%(cost/len(trees))    
     print "Pearson correlation %f"%(pearsonr(corrects,guesses)[0])
 

@@ -344,7 +344,7 @@ def loadTrees(dataSet='train'):
     return trees
 
 def build_word2Vector_glove():
-    print "build word2vec"
+    print "building word2vec"
 
     """
     Loads 300x1 word vecs from glove
