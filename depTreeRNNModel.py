@@ -186,7 +186,7 @@ class depTreeRnnModel:
         tree.root.td = target_distribution.reshape(self.outputDim)
 
         #cost = -np.dot(target_distribution, np.log(predicted_distribution).T)
-        cost = entropy(target_distribution.reshape(outputDim,),predicted_distribution.reshape(outputDim,))
+        cost = entropy(target_distribution.reshape(self.outputDim,),predicted_distribution.reshape(self.outputDim,))
 
         #assert cost1[0,0] == cost2, "they should equal"
         
