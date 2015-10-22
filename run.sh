@@ -9,9 +9,10 @@ set -x
 # training params
 epochs=200
 step=1e-2
-wvecDim=300
-
-model="RNN" #either RNN, RNN2, RNN3, RNTN, or DCNN
+numLabels=5
+wvecDim=100
+miniBatch=300
+model=RNN
 
 
 ######################################################## 
@@ -21,7 +22,8 @@ outfile="models/${model}_wvecDim_${wvecDim}_step_${step}.bin"
 
 echo $outfile
 
-python -u runNNet.py --step $step --epochs $epochs --outFile $outfile \
-	                  --outputDim 5 --wvecDim $wvecDim --model $model 
+python -u main.py --step $step --epochs $epochs --outFile $outfile \
+                  				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
+
 
 
