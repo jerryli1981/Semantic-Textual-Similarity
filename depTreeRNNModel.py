@@ -1,6 +1,7 @@
 import numpy as np
 import random # for random shuffle train data
 from multiprocessing import Pool
+from numpy import inf
 
 from scipy.stats import pearsonr
 from scipy.stats import spearmanr
@@ -12,16 +13,28 @@ def softmax(x):
     N = x.shape[0]
     x -= np.max(x,axis=1).reshape(N,1)
     x = np.exp(x)/np.sum(np.exp(x),axis=1).reshape(N,1)
+    return x
 
+# LogSoftmax is defined as f_i(x) = log(1/a exp(x_i)), where a = sum_j exp(x_j).
+def logsoftmax(x):
+    N = x.shape[0]
+    x -= np.max(x,axis=1).reshape(N,1)
+    x = np.exp(x)/np.sum(np.exp(x),axis=1).reshape(N,1)
+    return np.log(x)
+
+
+def sigmoid(x):
+    """ Sigmoid function """
+    x = 1/(1+np.exp(-x))    
     return x
 
 def roll_params(params):
-    L, WR, WV, b, Ws, bs = params
-    return np.concatenate((L.ravel(), WR.ravel(), WV.ravel(), b.ravel(), Ws.ravel(), bs.ravel()))
+    L, WR, WV, b, Wsg, Wsm, bsm = params
+    return np.concatenate((L.ravel(), WR.ravel(), WV.ravel(), b.ravel(), Wsg.ravel(), Wsm.ravel(), bsm.ravel()))
 
 def unroll_params(arr, hparams):
 
-    relNum, wvecDim, outputDim, numWords = hparams
+    relNum, wvecDim, outputDim, numWords, sim_nhidden = hparams
 
     ind = 0
 
@@ -39,12 +52,15 @@ def unroll_params(arr, hparams):
     b = arr[ind : ind + wvecDim].reshape(wvecDim,)
     ind += wvecDim
 
-    Ws = arr[ind : ind + outputDim*wvecDim].reshape( (outputDim, wvecDim))
-    ind += outputDim*wvecDim
+    Wsg = arr[ind : ind + sim_nhidden * wvecDim].reshape((sim_nhidden, wvecDim))
+    ind += sim_nhidden * wvecDim
 
-    bs = arr[ind : ind + outputDim].reshape(outputDim,)
+    Wsm = arr[ind : ind + outputDim*sim_nhidden].reshape( (outputDim, sim_nhidden))
+    ind += outputDim*sim_nhidden
 
-    return (L, WR, WV, b, Ws, bs)
+    bsm = arr[ind : ind + outputDim].reshape(outputDim,)
+
+    return (L, WR, WV, b, Wsg, Wsm, bsm)
 
 def unwrap_self_forwardBackwardProp(arg, **kwarg):
     return depTreeRnnModel.forwardBackwardProp(*arg, **kwarg)
@@ -56,6 +72,7 @@ class depTreeRnnModel:
         self.relNum = relNum
         self.wvecDim = wvecDim
         self.outputDim = outputDim
+        self.sim_nhidden = 50
 
     def initialParams(self, word2vecs):
 
@@ -68,25 +85,28 @@ class depTreeRnnModel:
         #self.L = 0.01*np.random.randn(self.wvecDim,self.numWords)
         self.numWords = word2vecs.shape[1]
         # scale by 0.01 can pass gradient check
-        self.L = 0.01*word2vecs[:self.wvecDim, :]
-
-        # Hidden layer parameters 
-        #self.WV = 0.01*np.random.randn(self.wvecDim, self.wvecDim)
-        self.WV = 0.01*np.random.rand(self.wvecDim, self.wvecDim) * 2 * r - r
+        self.L = word2vecs[:self.wvecDim, :]
 
         # Relation layer parameters
         #self.WR = 0.01*np.random.randn(self.relNum, self.wvecDim, self.wvecDim)
-        self.WR = 0.01*np.random.rand(self.relNum, self.wvecDim, self.wvecDim) * 2 * r -r
+        self.WR = np.random.rand(self.relNum, self.wvecDim, self.wvecDim) * 2 * r -r
 
+        # Hidden layer parameters 
+        #self.WV = 0.01*np.random.randn(self.wvecDim, self.wvecDim)
+        self.WV = np.random.rand(self.wvecDim, self.wvecDim) * 2 * r - r
         self.b = np.zeros((self.wvecDim))
 
 
-        # Softmax weights
-        #self.Ws = 0.01*np.random.randn(self.outputDim,self.wvecDim) # note this is " U " in the notes and the handout.. there is a reason for the change in notation
-        self.Ws = 0.01*np.random.rand(self.outputDim, self.wvecDim)
-        self.bs = np.zeros((self.outputDim))
+        #Sigmoid weights
+        #self.Wsg = 0.01*np.random.randn(self.sim_nhidden, self.wvecDim)
+        self.Wsg = np.random.rand(self.sim_nhidden, self.wvecDim) * 2 * r - r
 
-        self.stack = [self.L, self.WR, self.WV, self.b, self.Ws, self.bs]
+        # Softmax weights
+        #self.Wsm = 0.01*np.random.randn(self.outputDim,self.sim_nhidden) # note this is " U " in the notes and the handout.. there is a reason for the change in notation
+        self.Wsm = np.random.rand(self.outputDim, self.sim_nhidden) * 2 * r - r
+        self.bsm = np.zeros((self.outputDim))
+
+        self.stack = [self.L, self.WR, self.WV, self.b, self.Wsg, self.Wsm, self.bsm]
 
     def initialGrads(self):
 
@@ -97,12 +117,12 @@ class depTreeRnnModel:
         #defaultVec = lambda : np.zeros((wvecDim,))
         #dL = collections.defaultdict(defaultVec)
         self.dL = np.zeros((self.wvecDim, self.numWords))
-
         self.dWR = np.zeros((self.relNum, self.wvecDim, self.wvecDim))
         self.dWV = np.zeros((self.wvecDim, self.wvecDim))
         self.db = np.zeros(self.wvecDim)
-        self.dWs = np.zeros((self.outputDim,self.wvecDim))
-        self.dbs = np.zeros(self.outputDim)
+        self.dWsg = np.zeros((self.sim_nhidden, self.wvecDim))
+        self.dWsm = np.zeros((self.outputDim, self.sim_nhidden))
+        self.dbsm = np.zeros(self.outputDim)
 
 
     def forwardProp(self, tree, test=False):
@@ -149,54 +169,32 @@ class depTreeRnnModel:
                 else:
                     to_do.append(curr)
         
-        
-        # compute target distribution   
-        if tree.score == 5.0:
-            tree.score = 4.99999 
-        target_distribution = np.zeros((1, self.outputDim))
-        for i in xrange(self.outputDim):
-            score_floor = np.floor(tree.score)
-            if i == score_floor + 1:
-                target_distribution[0,i] = tree.score - score_floor
-            elif i == score_floor:
-                target_distribution[0,i] = score_floor - tree.score + 1
-            else:
-                target_distribution[0,i] = 0  
-
-        """
-
-        sim = 0.25 * (tree.score-1) * 4 + 1
+        # compute target distribution  
+        td = np.zeros(self.outputDim+1) 
+        sim = tree.score
         ceil = np.ceil(sim)
         floor = np.floor(sim)
+        if ceil == floor:
+            td[floor] = 1
+        else:
+            td[floor] = ceil-sim
+            td[ceil] = sim-floor
 
-        target_distribution = np.zeros((1, self.outputDim))
+        td = td[1:]
+        td += 1e-8
+        #compute similarity
+        tree.root.sigAct = sigmoid(np.dot(self.Wsg, tree.root.hAct)) #(sim_nhidden,)
+        pd= logsoftmax((np.dot(self.Wsm, tree.root.sigAct) + self.bsm).reshape(1, self.outputDim)) #(1, outputDim)
+        #KL divergence loss, loss(x, target) = \sum(target_i * (log(target_i) - x_i))
+        log_td = np.log(td)
+        log_td[log_td == -inf] = 0
+        cost = np.dot(td, log_td-pd.reshape(self.outputDim)) / self.outputDim
 
-        for i in range(self.outputDim):
-            if i == ceil and ceil == floor:
-                target_distribution[0, i] = 1
-            elif i == floor:
-                target_distribution[0,i] = ceil - sim
-            elif i == ceil:
-                target_distribution[0,i] = sim - floor
-        """
-
-
-        predicted_distribution= softmax((np.dot(self.Ws, tree.root.hAct) + self.bs).reshape(1, self.outputDim))
-        tree.root.pd = predicted_distribution.reshape(self.outputDim)
-        tree.root.td = target_distribution.reshape(self.outputDim)
-
-        #cost = -np.dot(target_distribution, np.log(predicted_distribution).T)
-        cost = entropy(target_distribution.reshape(self.outputDim,),predicted_distribution.reshape(self.outputDim,))
-
-        #assert cost1[0,0] == cost2, "they should equal"
-        
-        #correctLabel = np.argmax(target_distribution)
-        #guessLabel = np.argmax(predicted_distribution)
-
-        predictScore = predicted_distribution.reshape(self.outputDim,).dot(np.array([1,2,3,4,5]))
-        #return cost, predictScore, tree.score
+        tree.root.pd = np.exp(pd.reshape(self.outputDim))
+        tree.root.td = td
 
         if test:
+            predictScore = np.exp(pd.reshape(self.outputDim)).dot(np.array([1,2,3,4,5]))
             return cost, float("{0:.2f}".format(predictScore)), tree.score
         else:
             return cost
@@ -206,11 +204,26 @@ class depTreeRnnModel:
         to_do = []
         to_do.append(tree.root)
 
-        deltas = tree.root.pd-tree.root.td
-        self.dWs += np.outer(deltas,tree.root.hAct)
-        self.dbs += deltas
+        norm = -1.0/self.outputDim
+        sim_grad = norm * tree.root.td
+        sim_grad[sim_grad == -0.] = 0
+        
+        #softmax gradient
+        deltas_sm = sim_grad * (tree.root.pd * (1-tree.root.pd))
 
-        tree.root.deltas = np.dot(self.Ws.T,deltas)
+        self.dWsm += np.outer(deltas_sm,tree.root.sigAct)
+        self.dbsm += deltas_sm
+
+        deltas_sg = np.dot(self.Wsm.T, deltas_sm) #(n_hidden)
+  
+        
+        #f = f*(1-f)   
+
+        deltas_sg *= tree.root.sigAct*(1-tree.root.sigAct)
+
+        self.dWsg += np.outer(deltas_sg, tree.root.hAct)
+
+        tree.root.deltas = np.dot(self.Wsg.T,deltas_sg)
 
         while to_do:
 
@@ -243,16 +256,16 @@ class depTreeRnnModel:
             cost += self.forwardProp(tree)
             self.backProp(tree)
 
-        return cost, roll_params((self.dL, self.dWR, self.dWV, self.db, self.dWs, self.dbs))
+        return cost, roll_params((self.dL, self.dWR, self.dWV, self.db, self.dWsg, self.dWsm, self.dbsm))
 
     def costAndGrad(self, mbdata, rho=1e-4): 
 
 
         cost, grad = self.forwardBackwardProp(mbdata)
 
-        hparams = (self.relNum, self.wvecDim, self.outputDim, self.numWords)
+        hparams = (self.relNum, self.wvecDim, self.outputDim, self.numWords, self.sim_nhidden)
 
-        self.dL, self.dWR, self.dWV, self.db, self.dWs, self.dbs = unroll_params(grad, hparams)
+        self.dL, self.dWR, self.dWV, self.db, self.dWsg, self.dWsm, self.dbsm = unroll_params(grad, hparams)
 
         # scale cost and grad by mb size
         scale = (1./len(mbdata))
@@ -262,12 +275,15 @@ class depTreeRnnModel:
         # Add L2 Regularization 
         cost += (rho/2)*np.sum(self.WV**2)
         cost += (rho/2)*np.sum(self.WR**2)
-        cost += (rho/2)*np.sum(self.Ws**2)
+        cost += (rho/2)*np.sum(self.Wsg**2)
+        cost += (rho/2)*np.sum(self.Wsm**2)
 
         return scale*cost, [self.dL,scale*(self.dWR + rho*self.WR),
                                    scale*(self.dWV + rho*self.WV),
                                    scale*self.db,
-                                   scale*(self.dWs+rho*self.Ws),scale*self.dbs]
+                                   scale*(self.dWsg+rho*self.Wsg),
+                                   scale*(self.dWsm+rho*self.Wsm),
+                                   scale*self.dbsm]
             
     def costAndGrad_MultiP(self, batchData, numProc, rho=1e-4):
 
@@ -318,7 +334,7 @@ class depTreeRnnModel:
 
         batches = [trainData[x : x + batchSize] for x in xrange(0, len(trainData), batchSize)]
 
-        stack = [self.L, self.WR, self.WV, self.b, self.Ws, self.bs]
+        stack = [self.L, self.WR, self.WV, self.b, self.Wsg, self.Wsm, self.bsm]
 
         #print "Using adagrad..."
         epsilon = 1e-8
@@ -357,7 +373,6 @@ class depTreeRnnModel:
             for j in range(self.numWords):
                 self.L[:,j] += scale*dL[:,j]
 
-
         for tree in trainData:
                 tree.resetFinished()
 
@@ -376,7 +391,7 @@ class depTreeRnnModel:
         print corrects[:10]
         print guesses[:10]
         print "Cost %f"%(cost/len(trees))    
-        print "Pearson correlation %f"%(pearsonr(corrects,guesses)[0])
+        #print "Pearson correlation %f"%(pearsonr(corrects,guesses)[0])
 
         for tree in trees:
                 tree.resetFinished()
@@ -411,7 +426,8 @@ class depTreeRnnModel:
             print "Grad Check Passed for dW"
         else:
             print "Grad Check Failed for dW: Sum of Error = %.9f" % (err1/count)
-
+        
+        """
         # check dL separately since dict
         dL = grad[0]
         L = self.stack[0]
@@ -433,18 +449,15 @@ class depTreeRnnModel:
             print "Grad Check Passed for dL"
         else:
             print "Grad Check Failed for dL: Sum of Error = %.9f" % (err2/count)
-
+        """
 
 if __name__ == '__main__':
 
-    __DEBUG__ = False
-    if __DEBUG__:
-        import pdb
-        pdb.set_trace()
+    import dependency_tree as treeM  
 
-    import dependency_tree as treeM    
     
     train = treeM.loadTrees()
+    print "train number %d"%len(train)
      
     numW = len(treeM.loadWordMap())
 

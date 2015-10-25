@@ -5,6 +5,8 @@ from numpy import inf
 import theano
 import theano.tensor as T
 
+from scipy.stats import pearsonr
+
 class LogisticRegression(object):
 
     def __init__(self, input, n_in, n_out):
@@ -78,9 +80,11 @@ class MLP(object):
 
         self.numLabels = n_out
 
+        self.input = input
+
         self.hiddenLayer = HiddenLayer(
             rng=rng,
-            input=input,
+            input=self.input,
             n_in=n_in,
             n_out=n_hidden,
             activation=T.tanh
@@ -113,6 +117,20 @@ class MLP(object):
         x = T.reshape(self.output, newshape)
         return T.dot(y, (T.log(y) - T.log(x)).T) / self.numLabels
 
+
+    def predict_p(self, new_data):
+
+        W_hidden, b_hidden = self.hiddenLayer.params
+
+        W_lg, b_lg = self.logRegressionLayer.params
+
+        output = T.nnet.sigmoid(T.dot(new_data, W_hidden) + b_hidden)
+
+        p_y_given_x = T.nnet.softmax(T.dot(output, W_lg) + b_lg)
+
+        return p_y_given_x
+   
+
 class depTreeRnnModel:
 
     def __init__(self, relNum, wvecDim, outputDim):
@@ -144,7 +162,23 @@ class depTreeRnnModel:
         self.WV = np.random.rand(self.wvecDim, self.wvecDim) * 2 * r - r
         self.b = np.zeros((self.wvecDim))
 
-    def forwardProp(self, tree, test=False):
+    def initialGrads(self):
+
+        #create with default_factory : defaultVec = lambda : np.zeros((wvecDim,))
+        #make the defaultdict useful for building a dictionary of np array
+        #this is very good to save memory, However, this may not support for multiprocess due to pickle error
+
+        #defaultVec = lambda : np.zeros((wvecDim,))
+        #dL = collections.defaultdict(defaultVec)
+        self.dL = np.zeros((self.wvecDim, self.numWords))
+        self.dWR = np.zeros((self.relNum, self.wvecDim, self.wvecDim))
+        self.dWV = np.zeros((self.wvecDim, self.wvecDim))
+        self.db = np.zeros(self.wvecDim)
+
+        self.dstack = [self.dL, self.dWR, self.dWV, self.db]
+        
+
+    def forwardProp(self, tree):
 
         #because many training epoch. 
         tree.resetFinished()
@@ -203,7 +237,9 @@ class depTreeRnnModel:
             curr = to_do.pop(0)
 
             if len(curr.kids) == 0:
+
                 self.dL[:, curr.index] += curr.deltas
+
             else:
 
                 # derivative of tanh
@@ -224,7 +260,7 @@ class depTreeRnnModel:
 
 
     #Minbatch stochastic gradient descent
-    def train(self, trainData, alpha, batchSize, numProcess=None):
+    def train(self, trainData, batchSize):
 
         #random.shuffle(trainData)
 
@@ -235,31 +271,42 @@ class depTreeRnnModel:
 
         rng = np.random.RandomState(1234)
 
+        self.initialGrads()
+
         # construct the MLP class
         classifier = MLP(
             rng=rng,
             input=x,
             n_in=self.wvecDim,
-            n_hidden=50,
+            n_hidden=150,
             n_out=self.outputDim
         )
 
-        L1_reg=0.00 
+        epsilon = 1e-8
+        L1_reg=0.00
         L2_reg=0.0001
 
-        epsilon = 1e-8
-      
-        #mlp_forward = theano.function([x], classifier.output, allow_input_downcast=True)
+        #cost_function = theano.function([x,y], cost, allow_input_downcast=True)
 
         cost = classifier.kl_divergence(y) + L1_reg * classifier.L1+ L2_reg * classifier.L2_sqr
+        #cost = classifier.kl_divergence(y)
 
-        cost_function = theano.function([x,y], cost, allow_input_downcast=True)
+        hidden_layer_W = classifier.hiddenLayer.params[0]
+        hidden_layer_b = classifier.hiddenLayer.params[1]
+        deltas = T.dot(hidden_layer_W, T.grad(cost,hidden_layer_b))
+
+        #grad_function = theano.function([x,y], T.grad(cost,hidden_layer_b), allow_input_downcast=True)
+        deltas_function = theano.function([x,y], deltas, allow_input_downcast=True)
+
+        learning_rate=0.01
 
         gparams = [T.grad(cost, param) for param in classifier.params]
 
-        W = classifier.hiddenLayer.params[0]
+        updates = [ (param, param - learning_rate * gparam)
+                    for param, gparam in zip(classifier.params, gparams)
+                  ]
 
-        grad_function = theano.function([x,y], T.grad(cost,W), allow_input_downcast=True)
+        cost_function = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
 
         for batchData in batches:
 
@@ -285,7 +332,6 @@ class depTreeRnnModel:
 
                 tree_rep = self.forwardProp(tree)
 
-
                 """
                 norm = -1.0/self.outputDim
                 sim_grad = norm * tree.root.td
@@ -300,14 +346,15 @@ class depTreeRnnModel:
                 deltas = np.dot(self.Wsg.T,deltas_sg)
                 """
 
-                grad = grad_function(tree_rep,td) # d * n_hidden
-                deltas = T.dot(W.T,gw)
-
-                self.backProp(tree, deltas)
-
                 td = targets[i]
                 td += epsilon
 
+
+                #due to hidden_layer_b_grad equal delta up, so based on error propogation
+                deltas = deltas_function(tree_rep,td) # (n_hidden,)
+
+                self.backProp(tree, deltas)
+                
                 """
                 output = mlp_forward(tree_rep)
                 log_td = np.log(td)
@@ -317,7 +364,6 @@ class depTreeRnnModel:
 
                 example_loss = cost_function(tree_rep,td)
                 
-
                 #assert np.abs(example_loss-example_loss_2)< 0.00001, "Shit"
 
                 """
@@ -328,28 +374,143 @@ class depTreeRnnModel:
 
                 loss += example_loss
 
+            loss = loss / batchSize
+
+            loss += 0.5*(np.sum(self.WV**2) + np.sum(self.WR**2) + classifier.L2_sqr)
+
+            #begin to update parameters
+
+            stack = [self.L, self.WR, self.WV, self.b]
+
+            gradt = [epsilon + np.zeros(W.shape) for W in stack]
+
+            grad = self.dstack
+
+            # trace = trace+grad.^2
+            gradt[1:] = [gt+g**2 for gt,g in zip(gradt[1:],grad[1:])]
+
+            # update = grad.*trace.^(-1/2)
+            update =  [g*(1./np.sqrt(gt)) for gt,g in zip(gradt[1:],grad[1:])]
+
+            # handle dictionary separately
+            dL = grad[0]
+            dLt = gradt[0]
+            for j in range(self.numWords):
+                dLt[:,j] = dLt[:,j] + dL[:,j]**2
+                dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
+
+            alpha = 0.01
+
+            scale = -alpha
+
+            update = [dL] + update
+
+            stack[1:] = [P+scale*dP for P,dP in zip(stack[1:],update[1:])]
+
+            for j in range(self.numWords):
+                self.L[:,j] += scale*dL[:,j]
+
         for tree in trainData:
                 tree.resetFinished()
+
+        return classifier
+
+    def predict(self, trees, classifier, epsilon = 1e-8):
+
+        # get target distribution for batch
+        targets = np.zeros((len(trees), self.outputDim+1))
+        # compute target distribution 
+
+        for i, tree in enumerate(trees):
+            sim = tree.score
+            ceil = np.ceil(sim)
+            floor = np.floor(sim)
+            if ceil == floor:
+                targets[i, floor] = 1
+            else:
+                targets[i, floor] = ceil-sim
+                targets[i, ceil] = sim-floor
+
+        targets = targets[:, 1:]
+
+        x = T.fvector('x')  # the data is presented as one sentence output
+       
+        mlp_forward = theano.function([x], classifier.predict_p(x), allow_input_downcast=True)
+
+        cost = 0
+        corrects = []
+        guesses = []
+        for i, tree in enumerate(trees):
+
+            td = targets[i]
+            td += epsilon
+
+            log_td = np.log(td)
+
+            tree_rep= self.forwardProp(tree)
+
+            pd = mlp_forward(tree_rep)
+
+            predictScore = pd.reshape(self.outputDim).dot(np.array([1,2,3,4,5]))
+
+            predictScore = float("{0:.2f}".format(predictScore))
+
+            loss = np.dot(td, log_td-np.log(pd.reshape(self.outputDim))) / self.outputDim
+
+            cost += loss
+            corrects.append(tree.score)
+            guesses.append(predictScore)
+
+        print corrects[:10]
+        print guesses[:10]
+        print "Cost %f"%(cost/len(trees))    
+        #print "Pearson correlation %f"%(pearsonr(corrects,guesses)[0])
+
+        for tree in trees:
+                tree.resetFinished()
+
+        #print "Spearman correlation %f"%(spearmanr(corrects,guesses)[0])
+        return pearsonr(corrects,guesses)[0]
 
 
 if __name__ == '__main__':
 
-    import dependency_tree as treeM      
-    train = treeM.loadTrees()
-    print "train number %d"%len(train)
+    import dependency_tree as tr     
+    trainTrees = tr.loadTrees("train")
+    print "train number %d"%len(trainTrees)
      
-    numW = len(treeM.loadWordMap())
+    numW = len(tr.loadWordMap())
 
-    relMap = treeM.loadRelMap()
+    relMap = tr.loadRelMap()
     relNum = len(relMap)
-    word2vecs = treeM.loadWord2VecMap()
+    word2vecs = tr.loadWord2VecMap()
 
-    wvecDim = 12
+    wvecDim = 100
     outputDim = 5
 
     rnn = depTreeRnnModel(relNum, wvecDim, outputDim)
     rnn.initialParams(word2vecs)
-    minibatch = 10
+    minibatch = 200
+
+    devTrees = tr.loadTrees("dev")
+
+    best_dev_score  = 0.
+
+    print "training model"
+    for e in range(1000):
+        print "iter ", e
+        #print "Running epoch %d"%e
+        classifier = rnn.train(trainTrees, minibatch)
+        #print "Time per epoch : %f"%(end-start)
+        
+        dev_score = rnn.predict(devTrees,classifier)
+        print "dev score is: %f"%dev_score
+
+        if dev_score > best_dev_score:
+            best_dev_score = dev_score
+            print "best dev score is: %f"%best_dev_score
+
     
-    rnn.train(train, 1e-2, minibatch)
+
+    
 

@@ -3,6 +3,7 @@ import time
 
 from depTreeRNNModel import depTreeRnnModel as rnn
 
+
 if __name__=='__main__':
 
     __DEBGU__ = False
@@ -36,24 +37,27 @@ if __name__=='__main__':
 
     trainTrees = tr.loadTrees("train")
     devTrees = tr.loadTrees("dev")
+    print "training data number %d"%(len(trainTrees))
+    print "dev data number %d"%(len(devTrees))
 
     best_dev_score  = 0.
 
     print "training model"
     for e in range(args.epochs):
-        print "Running epoch %d"%e
+        #print "Running epoch %d"%e
         start = time.time()
         model.train(trainTrees, args.step, args.minibatch, numProcess=args.numProcess)
         end = time.time()
-        print "Time per epoch : %f"%(end-start)
-
+        #print "Time per epoch : %f"%(end-start)
+        
+        
         dev_score = model.predict(devTrees)
-        print "dev score %f", dev_score
+        print "dev score is: %f"%dev_score
 
         if dev_score > best_dev_score:
             best_dev_score = dev_score
-            print "best dev score %f", best_dev_score
-
+            print "best dev score is: %f"%best_dev_score
+            
 
 
     

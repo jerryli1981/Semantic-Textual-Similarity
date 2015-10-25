@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # verbose
 set -x
 ###################
@@ -7,7 +6,7 @@ set -x
 ###################
 
 # training params
-epochs=200
+epochs=20000
 step=1e-2
 numLabels=5
 wvecDim=100

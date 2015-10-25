@@ -314,6 +314,10 @@ def loadTrees(dataSet='train'):
         for index, datum in enumerate(dataset):
             #if index %1000 == 0 :
                 #print index
+            """
+            if index > 10:
+                break
+            """
 
             first_parse, second_parse = datum["parse"]
 
