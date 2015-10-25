@@ -162,6 +162,8 @@ class depTreeRnnModel:
         self.WV = np.random.rand(self.wvecDim, self.wvecDim) * 2 * r - r
         self.b = np.zeros((self.wvecDim))
 
+        self.stack = [self.L, self.WR, self.WV, self.b]
+
     def initialGrads(self):
 
         #create with default_factory : defaultVec = lambda : np.zeros((wvecDim,))
@@ -258,55 +260,24 @@ class depTreeRnnModel:
                     rel_vec = self.WR[rel.index]
                     kid.deltas = np.dot(rel_vec.T, curr.deltas)
 
+    def updateParams(self,learning_rate,update):
+        """
+        Updates parameters as
+        p := p - learning_rate * update.
+        """
+        self.stack[1:] = [P-learning_rate*dP for P,dP in zip(self.stack[1:],update[1:])]
+
+        # handle dictionary update sparsely
+        dL = update[0]
+        for j in range(self.numWords):
+            self.L[:,j] -= learning_rate*dL[:,j]
 
     #Minbatch stochastic gradient descent
-    def train(self, trainData, batchSize):
+    def train(self, trainData, batchSize, optimizer):
 
-        #random.shuffle(trainData)
+        random.shuffle(trainData)
 
         batches = [trainData[x : x + batchSize] for x in xrange(0, len(trainData), batchSize)]
-
-        x = T.fvector('x')  # the data is presented as one sentence output
-        y = T.fvector('y')  # the target distribution
-
-        rng = np.random.RandomState(1234)
-
-        self.initialGrads()
-
-        # construct the MLP class
-        classifier = MLP(
-            rng=rng,
-            input=x,
-            n_in=self.wvecDim,
-            n_hidden=150,
-            n_out=self.outputDim
-        )
-
-        epsilon = 1e-8
-        L1_reg=0.00
-        L2_reg=0.0001
-
-        #cost_function = theano.function([x,y], cost, allow_input_downcast=True)
-
-        cost = classifier.kl_divergence(y) + L1_reg * classifier.L1+ L2_reg * classifier.L2_sqr
-        #cost = classifier.kl_divergence(y)
-
-        hidden_layer_W = classifier.hiddenLayer.params[0]
-        hidden_layer_b = classifier.hiddenLayer.params[1]
-        deltas = T.dot(hidden_layer_W, T.grad(cost,hidden_layer_b))
-
-        #grad_function = theano.function([x,y], T.grad(cost,hidden_layer_b), allow_input_downcast=True)
-        deltas_function = theano.function([x,y], deltas, allow_input_downcast=True)
-
-        learning_rate=0.01
-
-        gparams = [T.grad(cost, param) for param in classifier.params]
-
-        updates = [ (param, param - learning_rate * gparam)
-                    for param, gparam in zip(classifier.params, gparams)
-                  ]
-
-        cost_function = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
 
         for batchData in batches:
 
@@ -347,11 +318,11 @@ class depTreeRnnModel:
                 """
 
                 td = targets[i]
-                td += epsilon
-
+                #due to td will log later for kld, so here td can't be zero.
+                td += 1e-16
 
                 #due to hidden_layer_b_grad equal delta up, so based on error propogation
-                deltas = deltas_function(tree_rep,td) # (n_hidden,)
+                deltas = optimizer.deltas_function(tree_rep,td) # (n_hidden,)
 
                 self.backProp(tree, deltas)
                 
@@ -362,7 +333,7 @@ class depTreeRnnModel:
                 example_loss = np.dot(td, log_td-np.log(output.reshape(self.outputDim))) / self.outputDim
                 """
 
-                example_loss = cost_function(tree_rep,td)
+                example_loss = optimizer.update_params_mlp(tree_rep, td)
                 
                 #assert np.abs(example_loss-example_loss_2)< 0.00001, "Shit"
 
@@ -376,44 +347,16 @@ class depTreeRnnModel:
 
             loss = loss / batchSize
 
-            loss += 0.5*(np.sum(self.WV**2) + np.sum(self.WR**2) + classifier.L2_sqr)
+            loss += 0.5*(np.sum(self.WV**2) + np.sum(self.WR**2) + optimizer.classifier.L2_sqr)
 
-            #begin to update parameters
-
-            stack = [self.L, self.WR, self.WV, self.b]
-
-            gradt = [epsilon + np.zeros(W.shape) for W in stack]
-
-            grad = self.dstack
-
-            # trace = trace+grad.^2
-            gradt[1:] = [gt+g**2 for gt,g in zip(gradt[1:],grad[1:])]
-
-            # update = grad.*trace.^(-1/2)
-            update =  [g*(1./np.sqrt(gt)) for gt,g in zip(gradt[1:],grad[1:])]
-
-            # handle dictionary separately
-            dL = grad[0]
-            dLt = gradt[0]
-            for j in range(self.numWords):
-                dLt[:,j] = dLt[:,j] + dL[:,j]**2
-                dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
-
-            alpha = 0.01
-
-            scale = -alpha
-
-            update = [dL] + update
-
-            stack[1:] = [P+scale*dP for P,dP in zip(stack[1:],update[1:])]
-
-            for j in range(self.numWords):
-                self.L[:,j] += scale*dL[:,j]
+            #begin to update rnn parameters
+            optimizer.run(self.dstack)
+      
 
         for tree in trainData:
                 tree.resetFinished()
 
-        return classifier
+        return optimizer.classifier
 
     def predict(self, trees, classifier, epsilon = 1e-8):
 
@@ -472,6 +415,77 @@ class depTreeRnnModel:
         #print "Spearman correlation %f"%(spearmanr(corrects,guesses)[0])
         return pearsonr(corrects,guesses)[0]
 
+class SGD:
+
+    def __init__(self, classifier, rep_model, alpha=0.01, optimizer='sgd'):
+
+        self.learning_rate = alpha # learning rate
+
+        self.classifier = classifier   
+    
+        L1_reg=0.00
+        L2_reg=0.0001
+
+        cost = self.classifier.kl_divergence(y) + L1_reg * self.classifier.L1+ L2_reg * self.classifier.L2_sqr
+        #cost = classifier.kl_divergence(y)
+        #cost_function = theano.function([x,y], cost, allow_input_downcast=True)
+
+        hidden_layer_W = self.classifier.hiddenLayer.params[0]
+        hidden_layer_b = self.classifier.hiddenLayer.params[1]
+
+        deltas = T.dot(hidden_layer_W, T.grad(cost,hidden_layer_b))
+
+        #grad_function = theano.function([x,y], T.grad(cost,hidden_layer_b), allow_input_downcast=True)
+        self.deltas_function = theano.function([x,y], deltas, allow_input_downcast=True)
+
+        gparams = [T.grad(cost, param) for param in self.classifier.params]
+
+        updates = [ (param, param - self.learning_rate * gparam)
+                    for param, gparam in zip(self.classifier.params, gparams)
+                  ]
+
+        self.update_params_mlp = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
+
+        self.rep_model = rep_model
+
+        self.rep_model.initialGrads()
+
+        
+        self.optimizer = optimizer
+
+        if self.optimizer == 'sgd':
+            print "Using sgd.."
+
+        elif self.optimizer == 'adagrad':
+            print "Using adagrad..."
+            epsilon = 1e-8
+            self.gradt = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
+
+    def run(self,grad):
+        
+        if self.optimizer == 'sgd':
+
+            update = grad
+            scale = -self.learning_rate
+
+        elif self.optimizer == 'adagrad':
+            # trace = trace+grad.^2
+            self.gradt[1:] = [gt+g**2 
+                    for gt,g in zip(self.gradt[1:],grad[1:])]
+            # update = grad.*trace.^(-1/2)
+            update =  [g*(1./np.sqrt(gt))
+                    for gt,g in zip(self.gradt[1:],grad[1:])]
+            # handle dictionary separately
+            dL = grad[0]
+            dLt = self.gradt[0]
+            for j in dL.iterkeys():
+                dLt[:,j] = dLt[:,j] + dL[j]**2
+                dL[j] = dL[j] * (1./np.sqrt(dLt[:,j]))
+            update = [dL] + update
+            scale = -self.learning_rate
+
+        # update params
+        self.rep_model.updateParams(scale,update)
 
 if __name__ == '__main__':
 
@@ -492,6 +506,23 @@ if __name__ == '__main__':
     rnn.initialParams(word2vecs)
     minibatch = 200
 
+   
+    x = T.fvector('x')  # the data is presented as one sentence output
+    y = T.fvector('y')  # the target distribution
+
+    rng = np.random.RandomState(1234)
+
+    # construct the MLP class
+    mlp = MLP(
+        rng=rng,
+        input=x,
+        n_in=wvecDim,
+        n_hidden=150,
+        n_out=outputDim
+    )
+
+    rnn_optimizer = SGD(classifier=mlp,rep_model=rnn)
+
     devTrees = tr.loadTrees("dev")
 
     best_dev_score  = 0.
@@ -500,7 +531,7 @@ if __name__ == '__main__':
     for e in range(1000):
         print "iter ", e
         #print "Running epoch %d"%e
-        classifier = rnn.train(trainTrees, minibatch)
+        classifier = rnn.train(trainTrees, minibatch, optimizer=rnn_optimizer)
         #print "Time per epoch : %f"%(end-start)
         
         dev_score = rnn.predict(devTrees,classifier)
