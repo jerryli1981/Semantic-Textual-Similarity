@@ -37,14 +37,21 @@ class DTree:
         
         # add dependency edges between nodes
         rootIdx = None
+        dependencies = []
         for rel, govIdx, depIdx in self.deps:
             if govIdx == -1:
                 rootIdx = depIdx
                 continue
             self.nodes[govIdx].kids.append((depIdx, Relation(rel)))
             self.nodes[depIdx].parent.append((govIdx, Relation(rel)))
+            dependencies.append((govIdx, depIdx))
 
         self.root = self.nodes[rootIdx]
+
+        G = nx.DiGraph()
+        G.add_edges_from(dependencies)
+
+        self.is_dag = nx.is_directed_acyclic_graph(G)
 
     def resetFinished(self):
         for node in self.nodes:
@@ -233,11 +240,7 @@ def buildWordRelMap(train=None, dev=None, test=None):
                 score = float(datum["score"])
                 first_depTree = DTree(first_parse, score = score)
                 second_depTree = DTree(second_parse,score = score)
-                mergedTree, isDag = first_depTree.mergeWith(second_depTree)
-                if not isDag:
-                    print "merge is not dag"
-                    continue
-                trees.append(mergedTree)
+                trees.append((first_depTree, second_depTree))
     if dev != None:
         with open(dev,'r') as fid:
             dataset = pickle.load(fid)
@@ -248,11 +251,7 @@ def buildWordRelMap(train=None, dev=None, test=None):
                 score = float(datum["score"])
                 first_depTree = DTree(first_parse, score = score)
                 second_depTree = DTree(second_parse,score = score)
-                mergedTree, isDag = first_depTree.mergeWith(second_depTree)
-                if not isDag:
-                    print "merge is not dag"
-                    continue
-                trees.append(mergedTree)
+                trees.append((first_depTree, second_depTree))
 
     if test != None:
         with open(test,'r') as fid:
@@ -264,23 +263,28 @@ def buildWordRelMap(train=None, dev=None, test=None):
                 score = float(datum["score"])
                 first_depTree = DTree(first_parse, score = score)
                 second_depTree = DTree(second_parse,score = score)
-                mergedTree, isDag = first_depTree.mergeWith(second_depTree)
-                if not isDag:
-                    print "merge is not dag"
-                    continue
-                trees.append(mergedTree)
+                trees.append((first_depTree, second_depTree))
     
     print "Counting words to give each word an index.."
     
     words = defaultdict(int)
     rels = defaultdict(int)
-    for tree in trees:
-        for node in tree.nodes:
+    for first_tree, second_tree in trees:
+
+        for node in first_tree.nodes:
             words[node.word] += 1
-        for rel, gov, dep in tree.deps:
+        for rel, gov, dep in first_tree.deps:
             #reduce total number relations
             rel = rel.split("_")[0]
             rels[rel] += 1
+
+        for node in second_tree.nodes:
+            words[node.word] += 1
+        for rel, gov, dep in second_tree.deps:
+            #reduce total number relations
+            rel = rel.split("_")[0]
+            rels[rel] += 1
+
 
     wordMap = dict(zip(words.iterkeys(),xrange(len(words))))
     wordMap[UNK] = len(words) # Add unknown as word
@@ -295,57 +299,6 @@ def buildWordRelMap(train=None, dev=None, test=None):
     with open('relMap.bin','w') as fid:
         pickle.dump(relMap,fid)
 
-
-
-def loadTrees(dataSet='train'):
-    """
-    Loads training trees. Maps leaf node words to word ids.
-    """
-    import cPickle as pickle
-    wordMap = loadWordMap()
-    relMap = loadRelMap()
-    
-    file = dataSet+'_dataset'
-
-    print "Loading %s dataset..."%dataSet
-    trees = []
-    with open(file,'r') as fid:
-        dataset = pickle.load(fid)
-        for index, datum in enumerate(dataset):
-            #if index %1000 == 0 :
-                #print index
-            """
-            if index > 10:
-                break
-            """
-
-            first_parse, second_parse = datum["parse"]
-
-            score = float(datum["score"])
-            first_depTree = DTree(first_parse, score = score)
-            second_depTree = DTree(second_parse,score = score)
-            mergedTree, isDag = first_depTree.mergeWith(second_depTree)
-            if not isDag:
-                #print "merge is not dag"
-                continue
-            trees.append(mergedTree)            
-    
-
-    for tree in trees:
-        for node in tree.nodes:
-            if node.word not in wordMap:
-                node.index = wordMap[UNK]
-            else:
-                node.index = wordMap[node.word]
-
-            if len(node.kids) != 0:
-                for depIdx, rel in node.kids:
-                    rel.index = relMap[rel.mention.split("_")[0]]
-            if len(node.parent) != 0:
-                for govIdx, rel in node.parent:
-                    rel.index = relMap[rel.mention.split("_")[0]]
-
-    return trees
 
 def build_word2Vector_glove():
     print "building word2vec"
@@ -394,6 +347,89 @@ def build_word2Vector_glove():
     print "Saving word2vec to word2vec.bin"
     with open('word2vec.bin','w') as fid:
         pickle.dump(word_embedding_matrix,fid)
+
+
+def loadTrees(dataSet='train', merged=False):
+    """
+    Loads training trees. Maps leaf node words to word ids.
+    """
+    import cPickle as pickle
+    wordMap = loadWordMap()
+    relMap = loadRelMap()
+    
+    file = dataSet+'_dataset'
+
+    print "Loading %s dataset..."%dataSet
+    trees = []
+    with open(file,'r') as fid:
+        dataset = pickle.load(fid)
+        for index, datum in enumerate(dataset):
+            #if index %1000 == 0 :
+                #print index
+            """
+            if index > 10:
+                break
+            """
+
+            first_parse, second_parse = datum["parse"]
+
+            score = float(datum["score"])
+            first_depTree = DTree(first_parse, score = score)
+            second_depTree = DTree(second_parse,score = score)
+            if merged:
+                mergedTree, isDag = first_depTree.mergeWith(second_depTree)
+                if not isDag:
+                    #print "merge is not dag"
+                    continue
+                trees.append((score, [mergedTree])) 
+            else:
+                if first_depTree.is_dag and second_depTree.is_dag:
+                    trees.append((score, [first_depTree, second_depTree])) 
+
+    if merged:
+        for score, [tree] in trees:
+            for node in tree.nodes:
+                if node.word not in wordMap:
+                    node.index = wordMap[UNK]
+                else:
+                    node.index = wordMap[node.word]
+
+                if len(node.kids) != 0:
+                    for depIdx, rel in node.kids:
+                        rel.index = relMap[rel.mention.split("_")[0]]
+                if len(node.parent) != 0:
+                    for govIdx, rel in node.parent:
+                        rel.index = relMap[rel.mention.split("_")[0]]
+    else:
+
+        for score, [first_tree, second_tree] in trees:
+            for node in first_tree.nodes:
+                if node.word not in wordMap:
+                    node.index = wordMap[UNK]
+                else:
+                    node.index = wordMap[node.word]
+
+                if len(node.kids) != 0:
+                    for depIdx, rel in node.kids:
+                        rel.index = relMap[rel.mention.split("_")[0]]
+                if len(node.parent) != 0:
+                    for govIdx, rel in node.parent:
+                        rel.index = relMap[rel.mention.split("_")[0]]
+
+            for node in second_tree.nodes:
+                if node.word not in wordMap:
+                    node.index = wordMap[UNK]
+                else:
+                    node.index = wordMap[node.word]
+
+                if len(node.kids) != 0:
+                    for depIdx, rel in node.kids:
+                        rel.index = relMap[rel.mention.split("_")[0]]
+                if len(node.parent) != 0:
+                    for govIdx, rel in node.parent:
+                        rel.index = relMap[rel.mention.split("_")[0]]
+
+    return trees
 
 
 if __name__=='__main__':
