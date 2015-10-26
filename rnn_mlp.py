@@ -269,163 +269,33 @@ class depTreeRnnModel:
         for j in range(self.numWords):
             self.L[:,j] -= learning_rate*dL[:,j]
 
-    #Minbatch stochastic gradient descent
-    def train(self, trainData, batchSize, optimizer, epsilon = 1e-16):
-
-        random.shuffle(trainData)
-
-        batches = [trainData[x : x + batchSize] for x in xrange(0, len(trainData), batchSize)]
-
-        for batchData in batches:
-
-            # get target distribution for batch
-            targets = np.zeros((batchSize, self.outputDim+1))
-            # compute target distribution 
-    
-            for i, (score, item) in enumerate(batchData):
-                sim = score
-                ceil = np.ceil(sim)
-                floor = np.floor(sim)
-                if ceil == floor:
-                    targets[i, floor] = 1
-                else:
-                    targets[i, floor] = ceil-sim
-                    targets[i, ceil] = sim-floor
-
-            targets = targets[:, 1:]
-
-            loss = 0.
-
-            for i, (score, item) in enumerate(batchData): 
-
-                if len(item) ==1:
-
-                    merged_tree_rep = self.forwardProp(item[0])
-
-                elif len(item) == 2:
-                    first_tree_rep = self.forwardProp(item[0])
-                    second_tree_rep = self.forwardProp(item[1])
-                    merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
-
-                td = targets[i]
-                #due to td will log later for kld, so here td can't be zero.
-                td += epsilon
-
-                #due to hidden_layer_b_grad equal delta up, so based on error propogation
-                deltas = optimizer.deltas_function(merged_tree_rep, td) # (n_hidden,)
-
-                if len(item) == 1:
-                    self.backProp(item[0], deltas)
-                elif len(item) == 2:
-                    self.backProp(item[0], deltas[:self.wvecDim])
-                    self.backProp(item[1], deltas[self.wvecDim:])
-                
-                """
-                output = mlp_forward(tree_rep)
-                log_td = np.log(td)
-
-                example_loss = np.dot(td, log_td-np.log(output.reshape(self.outputDim))) / self.outputDim
-                """
-
-                example_loss = optimizer.update_params_mlp(merged_tree_rep, td)
-                
-                #assert np.abs(example_loss-example_loss_2)< 0.00001, "Shit"
-
-                """
-                norm = -1.0/self.outputDim
-                sim_grad = norm * td
-                sim_grad[sim_grad == -0.] = 0
-                """
-
-                loss += example_loss
-
-            loss = loss / batchSize
-
-            loss += 0.5*(np.sum(self.WV**2) + np.sum(self.WR**2) + optimizer.classifier.L2_sqr)
-
-            #begin to update rnn parameters
-            optimizer.run(self.dstack)
-      
-
-        for score, item in trainData:
-            for tree in item:          
-                tree.resetFinished()
-
-        return optimizer.classifier
-
-    def predict(self, trees, classifier, epsilon=1e-16):
-
-        # get target distribution for batch
-        targets = np.zeros((len(trees), self.outputDim+1))
-        # compute target distribution 
-
-        for i, (score, item) in enumerate(trees):
-            sim = score
-            ceil = np.ceil(sim)
-            floor = np.floor(sim)
-            if ceil == floor:
-                targets[i, floor] = 1
-            else:
-                targets[i, floor] = ceil-sim
-                targets[i, ceil] = sim-floor
-
-        targets = targets[:, 1:]
-
-        x = T.fvector('x')  # the data is presented as one sentence output
-       
-        mlp_forward = theano.function([x], classifier.predict_p(x), allow_input_downcast=True)
-
-        cost = 0
-        corrects = []
-        guesses = []
-
-        for i, (score, item) in enumerate(trees):
-
-            td = targets[i]
-            td += epsilon
-
-            log_td = np.log(td)
-
-            if len(item) == 1:
-                tree_rep= self.forwardProp(item[0])
-                pd = mlp_forward(tree_rep)
-
-            elif len(item) == 2:
-                first_tree_rep= self.forwardProp(item[0])
-                second_tree_rep = self.forwardProp(item[1])
-                merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
-                pd = mlp_forward(merged_tree_rep)
 
 
-            predictScore = pd.reshape(self.outputDim).dot(np.array([1,2,3,4,5]))
-
-            predictScore = float("{0:.2f}".format(predictScore))
-
-            loss = np.dot(td, log_td-np.log(pd.reshape(self.outputDim))) / self.outputDim
-
-            cost += loss
-            corrects.append(score)
-            guesses.append(predictScore)
-
-        #print corrects[:10]
-        #print guesses[:10]
-  
-        for score, item in trees:
-            for tree in item:          
-                tree.resetFinished()
-
-        return cost/len(trees), pearsonr(corrects,guesses)[0]
 
 class SGD:
 
-    def __init__(self, classifier, rep_model, alpha=0.01, optimizer='sgd', epsilon = 1e-16):
+    def __init__(self, rep_model, rng, merged=False, 
+        alpha=0.01, optimizer='sgd', epsilon = 1e-16):
+
+        self.rep_model = rep_model
+        self.rep_model.initialGrads()
 
         self.learning_rate = alpha # learning rate
 
-        self.classifier = classifier   
-    
+        x = T.fvector('x')  # the data is presented as one sentence output
+        y = T.fvector('y')  # the target distribution
+
+        # construct the MLP class
+        if merged:
+            mlp = MLP(rng=rng,input=x,n_in=self.rep_model.wvecDim,n_hidden=150,n_out=self.rep_model.outputDim)
+        else:
+            mlp = MLP(rng=rng,input=x,n_in=self.rep_model.wvecDim*2,n_hidden=150,n_out=self.rep_model.outputDim)
+        
+        
+        self.classifier = mlp  
+
         L1_reg=0.00
-        L2_reg=0.0001
+        L2_reg=0.0001 
 
         cost = self.classifier.kl_divergence(y) + L1_reg * self.classifier.L1+ L2_reg * self.classifier.L2_sqr
         #cost = classifier.kl_divergence(y)
@@ -447,11 +317,7 @@ class SGD:
 
         self.update_params_mlp = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
 
-        self.rep_model = rep_model
 
-        self.rep_model.initialGrads()
-
-        
         self.optimizer = optimizer
 
         if self.optimizer == 'sgd':
@@ -462,7 +328,83 @@ class SGD:
             
             self.gradt = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
 
-    def run(self,grad):
+    def run(self, trainData, batchSize, epsilon = 1e-16):
+
+        random.shuffle(trainData)
+
+        batches = [trainData[idx : idx + batchSize] for idx in xrange(0, len(trainData), batchSize)]
+
+        targetData = np.zeros((len(trainData), self.rep_model.outputDim+1))
+
+        for i, (score, item) in enumerate(trainData):
+            sim = score
+            ceil = np.ceil(sim)
+            floor = np.floor(sim)
+            if ceil == floor:
+                targetData[i, floor] = 1
+            else:
+                targetData[i, floor] = ceil-sim 
+                targetData[i, ceil] = sim-floor
+
+        targetData = targetData[:, 1:]
+
+        for index, batchData in enumerate(batches):
+
+            targets = targetData[index * batchSize: (index + 1) * batchSize]
+
+
+            for i, (score, item) in enumerate(batchData): 
+
+                td = targets[i]
+                td += epsilon
+
+                if len(item) ==1:
+
+                    merged_tree_rep = self.rep_model.forwardProp(item[0])
+
+                elif len(item) == 2:
+                    first_tree_rep = self.rep_model.forwardProp(item[0])
+                    second_tree_rep = self.rep_model.forwardProp(item[1])
+                    merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
+
+                #due to hidden_layer_b_grad equal delta up, so based on error propogation
+                deltas = self.deltas_function(merged_tree_rep, td) # (n_hidden,)
+
+                if len(item) == 1:
+                    self.rep_model.backProp(item[0], deltas)
+                elif len(item) == 2:
+                    self.rep_model.backProp(item[0], deltas[:self.rep_model.wvecDim])
+                    self.rep_model.backProp(item[1], deltas[self.rep_model.wvecDim:])
+                
+                """
+                output = mlp_forward(tree_rep)
+                log_td = np.log(td)
+
+                example_loss = np.dot(td, log_td-np.log(output.reshape(self.outputDim))) / self.outputDim
+                """
+
+                example_loss = self.update_params_mlp(merged_tree_rep, td)
+                
+                #assert np.abs(example_loss-example_loss_2)< 0.00001, "Shit"
+
+                """
+                norm = -1.0/self.outputDim
+                sim_grad = norm * td
+                sim_grad[sim_grad == -0.] = 0
+                """
+
+                #loss += example_loss
+
+            #loss = loss / batchSize
+
+            #loss += 0.5*(np.sum(self.WV**2) + np.sum(self.WR**2) + optimizer.classifier.L2_sqr)
+
+            for score, item in batchData:
+                for tree in item:          
+                    tree.resetFinished()
+
+        #begin to update rnn parameters
+        grad = self.rep_model.dstack
         
         if self.optimizer == 'sgd':
 
@@ -479,14 +421,80 @@ class SGD:
             # handle dictionary separately
             dL = grad[0]
             dLt = self.gradt[0]
-            for j in dL.iterkeys():
-                dLt[:,j] = dLt[:,j] + dL[j]**2
-                dL[j] = dL[j] * (1./np.sqrt(dLt[:,j]))
+            for j in range(self.rep_model.numWords):
+                dLt[:,j] = dLt[:,j] + dL[:,j]**2
+                dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
             update = [dL] + update
             scale = -self.learning_rate
 
         # update params
         self.rep_model.updateParams(scale,update)
+
+        return self.rep_model, self.classifier
+
+def predict(trees, rnn, classifier, epsilon=1e-16):
+
+    # get target distribution for batch
+    targets = np.zeros((len(trees), rnn.outputDim+1))
+    # compute target distribution 
+
+    for i, (score, item) in enumerate(trees):
+        sim = score
+        ceil = np.ceil(sim)
+        floor = np.floor(sim)
+        if ceil == floor:
+            targets[i, floor] = 1
+        else:
+            targets[i, floor] = ceil-sim
+            targets[i, ceil] = sim-floor
+
+    targets = targets[:, 1:]
+
+    x = T.fvector('x')  # the data is presented as one sentence output
+   
+    mlp_forward = theano.function([x], classifier.predict_p(x), allow_input_downcast=True)
+
+    cost = 0
+    corrects = []
+    guesses = []
+
+    for i, (score, item) in enumerate(trees):
+
+        td = targets[i]
+        td += epsilon
+
+        log_td = np.log(td)
+
+        if len(item) == 1:
+            tree_rep= rnn.forwardProp(item[0])
+            pd = mlp_forward(tree_rep)
+
+        elif len(item) == 2:
+            first_tree_rep= rnn.forwardProp(item[0])
+            second_tree_rep = rnn.forwardProp(item[1])
+            merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
+            pd = mlp_forward(merged_tree_rep)
+
+
+        predictScore = pd.reshape(rnn.outputDim).dot(np.array([1,2,3,4,5]))
+
+        predictScore = float("{0:.2f}".format(predictScore))
+
+        loss = np.dot(td, log_td-np.log(pd.reshape(rnn.outputDim))) / rnn.outputDim
+
+        cost += loss
+        corrects.append(score)
+        guesses.append(predictScore)
+
+    #print corrects[:10]
+    #print guesses[:10]
+
+    for score, item in trees:
+        for tree in item:          
+            tree.resetFinished()
+
+    return cost/len(trees), pearsonr(corrects,guesses)[0]
+
 
 if __name__ == '__main__':
 
@@ -511,28 +519,7 @@ if __name__ == '__main__':
     rnn.initialParams(word2vecs, rng=rng)
     minibatch = 200
 
-    x = T.fvector('x')  # the data is presented as one sentence output
-    y = T.fvector('y')  # the target distribution
-
-    # construct the MLP class
-    if merged:
-        mlp = MLP(
-            rng=rng,
-            input=x,
-            n_in=wvecDim,
-            n_hidden=150,
-            n_out=outputDim
-        )
-    else:
-        mlp = MLP(
-            rng=rng,
-            input=x,
-            n_in=wvecDim*2,
-            n_hidden=150,
-            n_out=outputDim
-        )
-
-    rnn_optimizer = SGD(classifier=mlp, rep_model=rnn)
+    optimizer = SGD(rep_model=rnn, rng=rng, merged=merged, optimizer='adagrad')
 
     devTrees = tr.loadTrees("dev", merged=merged)
 
@@ -542,19 +529,12 @@ if __name__ == '__main__':
     for e in range(100):
         
         #print "Running epoch %d"%e
-        classifier = rnn.train(trainTrees, minibatch, optimizer=rnn_optimizer)
+        rnn, mlp = optimizer.run(trainTrees, minibatch)
         #print "Time per epoch : %f"%(end-start)
         
-        cost, dev_score = rnn.predict(devTrees,classifier)
+        cost, dev_score = predict(devTrees, rnn, mlp)
         if dev_score > best_dev_score:
             best_dev_score = dev_score
             print "iter:%d cost: %f dev_score: %f best_dev_score %f"%(e, cost, dev_score, best_dev_score)
         else:
-            print "iter:%d cost: %f dev_score: %f"%(e, cost, dev_score) 
-
-        
-
-    
-
-    
-
+            print "iter:%d cost: %f dev_score: %f"%(e, cost, dev_score)

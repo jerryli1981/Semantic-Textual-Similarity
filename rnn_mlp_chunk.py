@@ -270,12 +270,12 @@ class depTreeRnnModel:
 
 class SGD:
 
-    def __init__(self, trainData, batchSize, rep_model, rng, merged=False, 
+    def __init__(self, rep_model, rng, merged=False, 
         alpha=0.01, optimizer='sgd', epsilon = 1e-16):
 
-        self.trainData = trainData
-        self.batchSize = batchSize
         self.rep_model = rep_model
+        self.rep_model.initialGrads()
+
         self.learning_rate = alpha # learning rate
 
         x_batch = T.fmatrix('x_batch')  # n * d, the data is presented as one sentence output
@@ -324,7 +324,7 @@ class SGD:
 
         self.deltas_function = theano.function([x, y], deltas, allow_input_downcast=True)
 
-        self.rep_model.initialGrads()
+        
 
         self.optimizer = optimizer
 
@@ -335,15 +335,15 @@ class SGD:
             print "Using adagrad..."
             self.gradt = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
 
-    def run(self, epsilon = 1e-16):
+    def run(self, trainData, batchSize, epsilon = 1e-16):
 
-        random.shuffle(self.trainData)
+        random.shuffle(trainData)
 
-        batches = [self.trainData[idx : idx + self.batchSize] for idx in xrange(0, len(self.trainData), self.batchSize)]
+        batches = [trainData[idx : idx + batchSize] for idx in xrange(0, len(trainData), batchSize)]
 
-        targetData = np.zeros((len(self.trainData), self.rep_model.outputDim+1))
+        targetData = np.zeros((len(trainData), self.rep_model.outputDim+1))
 
-        for i, (score, item) in enumerate(self.trainData):
+        for i, (score, item) in enumerate(trainData):
             sim = score
             ceil = np.ceil(sim)
             floor = np.floor(sim)
@@ -357,7 +357,7 @@ class SGD:
 
         for index, batchData in enumerate(batches):
 
-            targets = targetData[index * self.batchSize: (index + 1) * self.batchSize]
+            targets = targetData[index * batchSize: (index + 1) * batchSize]
 
             tree_reps = np.zeros((len(targets), self.rep_model.wvecDim*2))
             
@@ -375,9 +375,10 @@ class SGD:
                     second_tree_rep = self.rep_model.forwardProp(item[1])
                     merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
 
-                tree_reps[i] = merged_tree_rep
-
+                #due to hidden_layer_b_grad equal delta up, so based on error propogation
                 deltas = self.deltas_function(merged_tree_rep, td) # (n_hidden,)
+
+                tree_reps[i] = merged_tree_rep
 
                 if len(item) == 1:
                     self.rep_model.backProp(item[0], deltas)
@@ -436,7 +437,7 @@ def predict(trees, rnn, classifier, epsilon=1e-16):
         if ceil == floor:
             targets[i, floor] = 1
         else:
-            targets[i, floor] = ceil-sim 
+            targets[i, floor] = ceil-sim
             targets[i, ceil] = sim-floor
 
     targets = targets[:, 1:]
@@ -465,6 +466,7 @@ def predict(trees, rnn, classifier, epsilon=1e-16):
             merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
             pd = mlp_forward(merged_tree_rep)
 
+
         predictScore = pd.reshape(rnn.outputDim).dot(np.array([1,2,3,4,5]))
 
         predictScore = float("{0:.2f}".format(predictScore))
@@ -483,6 +485,7 @@ def predict(trees, rnn, classifier, epsilon=1e-16):
             tree.resetFinished()
 
     return cost/len(trees), pearsonr(corrects,guesses)[0]
+
 
 if __name__ == '__main__':
 
@@ -507,7 +510,7 @@ if __name__ == '__main__':
     rnn.initialParams(word2vecs, rng=rng)
     minibatch = 200
 
-    optimizer = SGD(trainTrees, minibatch, rep_model=rnn, rng=rng, merged=merged, optimizer='sgd')
+    optimizer = SGD(rep_model=rnn, rng=rng, merged=merged, optimizer='adagrad')
 
     devTrees = tr.loadTrees("dev", merged=merged)
 
@@ -517,18 +520,12 @@ if __name__ == '__main__':
     for e in range(100):
         
         #print "Running epoch %d"%e
-        rnn, mlp = optimizer.run()
+        rnn, mlp = optimizer.run(trainTrees, minibatch)
         #print "Time per epoch : %f"%(end-start)
+        
         cost, dev_score = predict(devTrees, rnn, mlp)
         if dev_score > best_dev_score:
             best_dev_score = dev_score
             print "iter:%d cost: %f dev_score: %f best_dev_score %f"%(e, cost, dev_score, best_dev_score)
         else:
-            print "iter:%d cost: %f dev_score: %f"%(e, cost, dev_score) 
-        
-        
-
-    
-
-    
-
+            print "iter:%d cost: %f dev_score: %f"%(e, cost, dev_score)
