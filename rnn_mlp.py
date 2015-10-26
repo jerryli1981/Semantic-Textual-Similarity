@@ -270,8 +270,6 @@ class depTreeRnnModel:
             self.L[:,j] -= learning_rate*dL[:,j]
 
 
-
-
 class SGD:
 
     def __init__(self, rep_model, rng, merged=False, 
@@ -315,8 +313,26 @@ class SGD:
                     for param, gparam in zip(self.classifier.params, gparams)
                   ]
 
-        self.update_params_mlp = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
+      
+        gparam_hw = T.fmatrix('gparam_hw')
+        updates_hw = [(self.classifier.params[0], self.classifier.params[0] - self.learning_rate * gparam_hw)]
 
+        gparam_hb = T.fvector('gparam_hb')
+        updates_hb = [(self.classifier.params[1], self.classifier.params[1] - self.learning_rate * gparam_hb)]
+
+        gparam_lw = T.fmatrix('gparam_lw')
+        updates_lw = [(self.classifier.params[2], self.classifier.params[2] - self.learning_rate * gparam_lw)]
+
+        gparam_lb = T.fvector('gparam_lb')
+        updates_lb = [(self.classifier.params[3], self.classifier.params[3] - self.learning_rate * gparam_lb)]
+
+        self.update_hw_mlp = theano.function(inputs=[gparam_hw], updates=updates_hw, allow_input_downcast=True)
+        self.update_hb_mlp = theano.function(inputs=[gparam_hb], updates=updates_hb, allow_input_downcast=True)
+        self.update_lw_mlp = theano.function(inputs=[gparam_lw], updates=updates_lw, allow_input_downcast=True)
+        self.update_lb_mlp = theano.function(inputs=[gparam_lb], updates=updates_lb, allow_input_downcast=True)
+
+        #self.update_params_mlp = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
+        self.accu_grad = theano.function(inputs=[x,y], outputs=gparams,allow_input_downcast=True)
 
         self.optimizer = optimizer
 
@@ -325,7 +341,6 @@ class SGD:
 
         elif self.optimizer == 'adagrad':
             print "Using adagrad..."
-            
             self.gradt = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
 
     def run(self, trainData, batchSize, epsilon = 1e-16):
@@ -352,6 +367,12 @@ class SGD:
 
             targets = targetData[index * batchSize: (index + 1) * batchSize]
 
+            d_hidden_w = np.zeros((self.classifier.hiddenLayer.params[0].shape.eval()))
+            d_hidden_b = np.zeros((self.classifier.hiddenLayer.params[1].shape.eval()))
+            d_log_w = np.zeros((self.classifier.logRegressionLayer.params[0].shape.eval()))
+            d_log_b = np.zeros((self.classifier.logRegressionLayer.params[1].shape.eval()))
+
+            d_mlp = [d_hidden_w, d_hidden_b, d_log_w, d_log_b]
 
             for i, (score, item) in enumerate(batchData): 
 
@@ -382,8 +403,13 @@ class SGD:
 
                 example_loss = np.dot(td, log_td-np.log(output.reshape(self.outputDim))) / self.outputDim
                 """
+                [dhw, dhb, dlw, dlb] = self.accu_grad(merged_tree_rep, td)
+                d_hidden_w += dhw
+                d_hidden_b += dhb
+                d_log_w += dlw
+                d_log_b += dlb
 
-                example_loss = self.update_params_mlp(merged_tree_rep, td)
+                #example_loss = self.update_params_mlp(merged_tree_rep, td)
                 
                 #assert np.abs(example_loss-example_loss_2)< 0.00001, "Shit"
 
@@ -403,32 +429,38 @@ class SGD:
                 for tree in item:          
                     tree.resetFinished()
 
-        #begin to update rnn parameters
-        grad = self.rep_model.dstack
-        
-        if self.optimizer == 'sgd':
+            #begin to update mlp parameters
+            self.update_hw_mlp(d_mlp[0])
+            self.update_hb_mlp(d_mlp[1])
+            self.update_lw_mlp(d_mlp[2])
+            self.update_lb_mlp(d_mlp[3])
 
-            update = grad
-            scale = -self.learning_rate
+            #begin to update rnn parameters
+            grad = self.rep_model.dstack
+            
+            if self.optimizer == 'sgd':
 
-        elif self.optimizer == 'adagrad':
-            # trace = trace+grad.^2
-            self.gradt[1:] = [gt+g**2 
-                    for gt,g in zip(self.gradt[1:],grad[1:])]
-            # update = grad.*trace.^(-1/2)
-            update =  [g*(1./np.sqrt(gt))
-                    for gt,g in zip(self.gradt[1:],grad[1:])]
-            # handle dictionary separately
-            dL = grad[0]
-            dLt = self.gradt[0]
-            for j in range(self.rep_model.numWords):
-                dLt[:,j] = dLt[:,j] + dL[:,j]**2
-                dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
-            update = [dL] + update
-            scale = -self.learning_rate
+                update = grad
+                scale = -self.learning_rate
 
-        # update params
-        self.rep_model.updateParams(scale,update)
+            elif self.optimizer == 'adagrad':
+                # trace = trace+grad.^2
+                self.gradt[1:] = [gt+g**2 
+                        for gt,g in zip(self.gradt[1:],grad[1:])]
+                # update = grad.*trace.^(-1/2)
+                update =  [g*(1./np.sqrt(gt))
+                        for gt,g in zip(self.gradt[1:],grad[1:])]
+                # handle dictionary separately
+                dL = grad[0]
+                dLt = self.gradt[0]
+                for j in range(self.rep_model.numWords):
+                    dLt[:,j] = dLt[:,j] + dL[:,j]**2
+                    dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
+                update = [dL] + update
+                scale = -self.learning_rate
+
+            # update params
+            self.rep_model.updateParams(scale,update)
 
         return self.rep_model, self.classifier
 
@@ -538,3 +570,8 @@ if __name__ == '__main__':
             print "iter:%d cost: %f dev_score: %f best_dev_score %f"%(e, cost, dev_score, best_dev_score)
         else:
             print "iter:%d cost: %f dev_score: %f"%(e, cost, dev_score)
+
+
+
+
+
