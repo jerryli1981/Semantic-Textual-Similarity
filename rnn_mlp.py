@@ -1,6 +1,4 @@
 import numpy as np
-import random # for random shuffle train data
-from numpy import inf
 
 import theano
 import theano.tensor as T
@@ -257,19 +255,6 @@ class depTreeRnnModel:
                     rel_vec = self.WR[rel.index]
                     kid.deltas = np.dot(rel_vec.T, curr.deltas)
 
-    def updateParams(self,learning_rate,update):
-        """
-        Updates parameters as
-        p := p - learning_rate * update.
-        """
-        self.stack[1:] = [P-learning_rate*dP for P,dP in zip(self.stack[1:],update[1:])]
-
-        # handle dictionary update sparsely
-        dL = update[0]
-        for j in range(self.numWords):
-            self.L[:,j] -= learning_rate*dL[:,j]
-
-
 class SGD:
 
     def __init__(self, rep_model, rng, merged=False, 
@@ -309,10 +294,14 @@ class SGD:
 
         gparams = [T.grad(cost, param) for param in self.classifier.params]
 
+
+        """
         updates = [ (param, param - self.learning_rate * gparam)
                     for param, gparam in zip(self.classifier.params, gparams)
                   ]
 
+        #self.update_params_mlp = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
+        """
       
         gparam_hw = T.fmatrix('gparam_hw')
         updates_hw = [(self.classifier.params[0], self.classifier.params[0] - self.learning_rate * gparam_hw)]
@@ -331,7 +320,25 @@ class SGD:
         self.update_lw_mlp = theano.function(inputs=[gparam_lw], updates=updates_lw, allow_input_downcast=True)
         self.update_lb_mlp = theano.function(inputs=[gparam_lb], updates=updates_lb, allow_input_downcast=True)
 
-        #self.update_params_mlp = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
+
+        gparam_hw_d = T.fmatrix('gparam_hw_d')
+        updates_hw_d = [(self.classifier.params[0], self.classifier.params[0] + gparam_hw_d)]
+
+        gparam_hb_d = T.fvector('gparam_hb_d')
+        updates_hb_d = [(self.classifier.params[1], self.classifier.params[1] + gparam_hb_d)]
+
+        gparam_lw_d = T.fmatrix('gparam_lw_d')
+        updates_lw_d = [(self.classifier.params[2], self.classifier.params[2] + gparam_lw_d)]
+
+        gparam_lb_d = T.fvector('gparam_lb_d')
+        updates_lb_d = [(self.classifier.params[3], self.classifier.params[3] + gparam_lb_d)]
+
+        self.update_hw_mlp_d = theano.function(inputs=[gparam_hw_d], updates=updates_hw_d, allow_input_downcast=True)
+        self.update_hb_mlp_d = theano.function(inputs=[gparam_hb_d], updates=updates_hb_d, allow_input_downcast=True)
+        self.update_lw_mlp_d = theano.function(inputs=[gparam_lw_d], updates=updates_lw_d, allow_input_downcast=True)
+        self.update_lb_mlp_d = theano.function(inputs=[gparam_lb_d], updates=updates_lb_d, allow_input_downcast=True)
+
+
         self.accu_grad = theano.function(inputs=[x,y], outputs=gparams,allow_input_downcast=True)
 
         self.optimizer = optimizer
@@ -341,11 +348,24 @@ class SGD:
 
         elif self.optimizer == 'adagrad':
             print "Using adagrad..."
-            self.gradt = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
+
+            self.gradt_mlp = [epsilon + np.zeros(W.shape.eval()) for W in self.classifier.params]
+
+            self.gradt_rnn = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
+
+        elif self.optimizer =="adadelta":
+            print "Using adadelta..."
+
+            self.gradt_mlp_1 = [epsilon + np.zeros(W.shape.eval()) for W in self.classifier.params]
+            self.gradt_mlp_2 = [epsilon + np.zeros(W.shape.eval()) for W in self.classifier.params]
+
+            self.gradt_rnn_1 = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
+            self.gradt_rnn_2 = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
+
 
     def run(self, trainData, batchSize, epsilon = 1e-16):
 
-        random.shuffle(trainData)
+        np.random.shuffle(trainData)
 
         batches = [trainData[idx : idx + batchSize] for idx in xrange(0, len(trainData), batchSize)]
 
@@ -429,40 +449,113 @@ class SGD:
                 for tree in item:          
                     tree.resetFinished()
 
-            #begin to update mlp parameters
-            self.update_hw_mlp(d_mlp[0])
-            self.update_hb_mlp(d_mlp[1])
-            self.update_lw_mlp(d_mlp[2])
-            self.update_lb_mlp(d_mlp[3])
-
             #begin to update rnn parameters
-            grad = self.rep_model.dstack
-            
             if self.optimizer == 'sgd':
 
-                update = grad
-                scale = -self.learning_rate
+                #begin to update mlp parameters
+                self.update_hw_mlp(d_mlp[0])
+                self.update_hb_mlp(d_mlp[1])
+                self.update_lw_mlp(d_mlp[2])
+                self.update_lb_mlp(d_mlp[3])
+
+                #begin to update rnn parameters
+                update = self.rep_model.dstack
+
+                self.rep_model.stack[1:] = [P-self.learning_rate*dP for P,dP in zip(self.rep_model.stack[1:],update[1:])]
+
+                # handle dictionary update sparsely
+                dL = update[0]
+                for j in range(self.rep_model.numWords):
+                    self.rep_model.L[:,j] -= self.learning_rate*dL[:,j]
 
             elif self.optimizer == 'adagrad':
-                # trace = trace+grad.^2
-                self.gradt[1:] = [gt+g**2 
-                        for gt,g in zip(self.gradt[1:],grad[1:])]
-                # update = grad.*trace.^(-1/2)
-                update =  [g*(1./np.sqrt(gt))
-                        for gt,g in zip(self.gradt[1:],grad[1:])]
-                # handle dictionary separately
-                dL = grad[0]
-                dLt = self.gradt[0]
-                for j in range(self.rep_model.numWords):
-                    dLt[:,j] = dLt[:,j] + dL[:,j]**2
-                    dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
-                update = [dL] + update
-                scale = -self.learning_rate
 
-            # update params
-            self.rep_model.updateParams(scale,update)
+                self.adagrad_mlp(d_mlp)
+
+                self.adagrad_rnn(self.rep_model.dstack)
+
+            elif self.optimizer == 'adadelta':
+
+                self.adadelta_mlp(d_mlp)
+
+                self.adadelta_rnn(self.rep_model.dstack)
 
         return self.rep_model, self.classifier
+
+    def adagrad_mlp(self, grad, eps=1e-6):
+
+        self.gradt_mlp = [gt+g**2 for gt,g in zip(self.gradt_mlp, grad)]
+
+        update =  [g*(1./np.sqrt(gt+eps)) for gt,g in zip(self.gradt_mlp,grad)]
+
+        self.update_hw_mlp(update[0])
+        self.update_hb_mlp(update[1])
+        self.update_lw_mlp(update[2])
+        self.update_lb_mlp(update[3])
+
+    def adadelta_mlp(self, grad, eps=1e-6, rho=0.95):
+
+        #param_update_1_u = rho*param_update_1+(1. - rho)*(gparam ** 2) 
+        self.gradt_mlp_1 = [rho*gt+(1.0-rho)*(g**2) for gt,g in zip(self.gradt_mlp_1, grad)]
+
+        #dparam = -T.sqrt((param_update_2 + eps) / (param_update_1_u + eps)) * gparam
+        dparam = [ -np.sqrt( (gt2+eps) / (gt1+eps) ) * g for gt1, gt2, g in zip(self.gradt_mlp_1, self.gradt_mlp_2, grad)]
+
+        self.update_hw_mlp_d(dparam[0])
+        self.update_hb_mlp_d(dparam[1])
+        self.update_lw_mlp_d(dparam[2])
+        self.update_lb_mlp_d(dparam[3])
+
+        #updates.append((param_update_2, rho*param_update_2+(1. - rho)*(dparam ** 2)))
+        self.gradt_mlp_2 = [dt + (1.0-rho)*(d**2) for dt, d in zip(self.gradt_mlp_2, dparam)]
+
+    def adagrad_rnn(self, grad, eps=1e-6):
+
+        # trace = trace+grad.^2
+        self.gradt_rnn[1:] = [gt+g**2 for gt,g in zip(self.gradt_rnn[1:],grad[1:])]
+        # update = grad.*trace.^(-1/2)
+        dparam =  [g*(1./np.sqrt(gt+eps)) for gt,g in zip(self.gradt_rnn[1:],grad[1:])]
+
+        self.rep_model.stack[1:] = [P-self.learning_rate*dP for P,dP in zip(self.rep_model.stack[1:],dparam)]
+
+        # handle dictionary separately
+        dL = grad[0]
+        dLt = self.gradt_rnn[0]
+        for j in range(self.rep_model.numWords):
+            dLt[:,j] = dLt[:,j] + dL[:,j]**2
+            dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]+eps))
+
+        # handle dictionary update sparsely
+        for j in range(self.rep_model.numWords):
+            self.rep_model.L[:,j] -= self.learning_rate*dL[:,j]
+
+    def adadelta_rnn(self, grad, eps=1e-6, rho=0.95):
+
+        #param_update_1_u = rho*param_update_1+(1. - rho)*(gparam ** 2) 
+        self.gradt_rnn_1[1:] = [rho*gt+(1.0-rho)*(g**2) for gt,g in zip(self.gradt_rnn_1[1:], grad[1:])]
+
+        #dparam = -T.sqrt((param_update_2 + eps) / (param_update_1_u + eps)) * gparam
+        dparam = [ -np.sqrt( (gt2+eps) / (gt1+eps) ) * g for gt1, gt2, g in zip(self.gradt_rnn_1[1:], self.gradt_rnn_2[1:], grad[1:])]
+        
+        self.rep_model.stack[1:] = [P+ dP for P,dP in zip(self.rep_model.stack[1:],dparam)]
+
+        dL = grad[0]
+        dLt_1 = self.gradt_rnn_1[0]
+        dLt_2 = self.gradt_rnn_2[0]
+
+        for j in range(self.rep_model.numWords):
+            dLt_1[:,j] = rho*dLt_1[:,j]+(1.0-rho)*(dL[:,j]**2)
+            dL[:,j] = dL[:,j]*(-np.sqrt((dLt_2[:,j]+eps)/(dLt_1[:,j]+eps)))
+
+            #update
+            dLt_2[:,j] += (1.0-rho)*(dL[:,j]**2)
+
+        for j in range(self.rep_model.numWords):
+            self.rep_model.L[:,j] += dL[:,j]
+
+        #updates.append((param_update_2, rho*param_update_2+(1. - rho)*(dparam ** 2)))
+        self.gradt_rnn_2[1:] = [dt + (1.0-rho)*(d**2) for dt, d in zip(self.gradt_rnn_2[1:], dparam)]
+
 
 def predict(trees, rnn, classifier, epsilon=1e-16):
 
@@ -551,14 +644,14 @@ if __name__ == '__main__':
     rnn.initialParams(word2vecs, rng=rng)
     minibatch = 200
 
-    optimizer = SGD(rep_model=rnn, rng=rng, merged=merged, optimizer='adagrad')
+    optimizer = SGD(rep_model=rnn, rng=rng, merged=merged, alpha=0.01, optimizer='adagrad')
 
     devTrees = tr.loadTrees("dev", merged=merged)
 
     best_dev_score  = 0.
 
     print "training model"
-    for e in range(100):
+    for e in range(1000):
         
         #print "Running epoch %d"%e
         rnn, mlp = optimizer.run(trainTrees, minibatch)
