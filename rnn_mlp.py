@@ -257,8 +257,7 @@ class depTreeRnnModel:
 
 class SGD:
 
-    def __init__(self, rep_model, rng, merged=False, 
-        alpha=0.01, optimizer='sgd', epsilon = 1e-16):
+    def __init__(self, rep_model, rng, alpha=0.01, optimizer='sgd', epsilon = 1e-16):
 
         self.rep_model = rep_model
         self.rep_model.initialGrads()
@@ -269,14 +268,9 @@ class SGD:
         y = T.fvector('y')  # the target distribution
 
         # construct the MLP class
-        if merged:
-            mlp = MLP(rng=rng,input=x,n_in=self.rep_model.wvecDim,n_hidden=150,n_out=self.rep_model.outputDim)
-        else:
-            mlp = MLP(rng=rng,input=x,n_in=self.rep_model.wvecDim*2,n_hidden=150,n_out=self.rep_model.outputDim)
+        self.classifier = MLP(rng=rng,input=x, n_in=self.rep_model.wvecDim,
+                            n_hidden=50,n_out=self.rep_model.outputDim)
         
-        
-        self.classifier = mlp  
-
         L1_reg=0.00
         L2_reg=0.0001 
 
@@ -399,30 +393,23 @@ class SGD:
                 td = targets[i]
                 td += epsilon
 
-                if len(item) ==1:
+                first_tree_rep = self.rep_model.forwardProp(item[0])
+                second_tree_rep = self.rep_model.forwardProp(item[1])
+                mul_rep = first_tree_rep * second_tree_rep
+                sub_rep = np.abs(first_tree_rep-second_tree_rep)
+                #merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
+                #merged_tree_rep = np.concatenate((sub_rep, sub_rep))
+                #merged_tree_rep = mul_rep
+                merged_tree_rep = sub_rep
 
-                    merged_tree_rep = self.rep_model.forwardProp(item[0])
-
-                elif len(item) == 2:
-                    first_tree_rep = self.rep_model.forwardProp(item[0])
-                    second_tree_rep = self.rep_model.forwardProp(item[1])
-                    merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
 
                 #due to hidden_layer_b_grad equal delta up, so based on error propogation
                 deltas = self.deltas_function(merged_tree_rep, td) # (n_hidden,)
 
-                if len(item) == 1:
-                    self.rep_model.backProp(item[0], deltas)
-                elif len(item) == 2:
-                    self.rep_model.backProp(item[0], deltas[:self.rep_model.wvecDim])
-                    self.rep_model.backProp(item[1], deltas[self.rep_model.wvecDim:])
+                self.rep_model.backProp(item[0], deltas)
+                self.rep_model.backProp(item[1], deltas)
                 
-                """
-                output = mlp_forward(tree_rep)
-                log_td = np.log(td)
 
-                example_loss = np.dot(td, log_td-np.log(output.reshape(self.outputDim))) / self.outputDim
-                """
                 [dhw, dhb, dlw, dlb] = self.accu_grad(merged_tree_rep, td)
                 d_hidden_w += dhw
                 d_hidden_b += dhb
@@ -432,12 +419,6 @@ class SGD:
                 #example_loss = self.update_params_mlp(merged_tree_rep, td)
                 
                 #assert np.abs(example_loss-example_loss_2)< 0.00001, "Shit"
-
-                """
-                norm = -1.0/self.outputDim
-                sim_grad = norm * td
-                sim_grad[sim_grad == -0.] = 0
-                """
 
                 #loss += example_loss
 
@@ -482,11 +463,11 @@ class SGD:
 
         return self.rep_model, self.classifier
 
-    def adagrad_mlp(self, grad, eps=1e-6):
+    def adagrad_mlp(self, grad):
 
         self.gradt_mlp = [gt+g**2 for gt,g in zip(self.gradt_mlp, grad)]
 
-        update =  [g*(1./np.sqrt(gt+eps)) for gt,g in zip(self.gradt_mlp,grad)]
+        update =  [g*(1./np.sqrt(gt)) for gt,g in zip(self.gradt_mlp,grad)]
 
         self.update_hw_mlp(update[0])
         self.update_hb_mlp(update[1])
@@ -509,12 +490,12 @@ class SGD:
         #updates.append((param_update_2, rho*param_update_2+(1. - rho)*(dparam ** 2)))
         self.gradt_mlp_2 = [rho*dt + (1.0-rho)*(d ** 2) for dt, d in zip(self.gradt_mlp_2, dparam)]
 
-    def adagrad_rnn(self, grad, eps=1e-6):
+    def adagrad_rnn(self, grad):
 
         # trace = trace+grad.^2
         self.gradt_rnn[1:] = [gt+g**2 for gt,g in zip(self.gradt_rnn[1:],grad[1:])]
         # update = grad.*trace.^(-1/2)
-        dparam =  [g*(1./np.sqrt(gt+eps)) for gt,g in zip(self.gradt_rnn[1:],grad[1:])]
+        dparam =  [g*(1./np.sqrt(gt)) for gt,g in zip(self.gradt_rnn[1:],grad[1:])]
 
         self.rep_model.stack[1:] = [P-self.learning_rate*dP for P,dP in zip(self.rep_model.stack[1:],dparam)]
 
@@ -523,7 +504,7 @@ class SGD:
         dLt = self.gradt_rnn[0]
         for j in range(self.rep_model.numWords):
             dLt[:,j] = dLt[:,j] + dL[:,j]**2
-            dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]+eps))
+            dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
 
         # handle dictionary update sparsely
         for j in range(self.rep_model.numWords):
@@ -597,7 +578,11 @@ def predict(trees, rnn, classifier, epsilon=1e-16):
         elif len(item) == 2:
             first_tree_rep= rnn.forwardProp(item[0])
             second_tree_rep = rnn.forwardProp(item[1])
-            merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
+            mul_rep = first_tree_rep * second_tree_rep
+            sub_rep = np.abs(first_tree_rep-second_tree_rep)
+            #merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
+            #merged_tree_rep = mul_rep
+            merged_tree_rep = sub_rep
             pd = mlp_forward(merged_tree_rep)
 
 
@@ -624,8 +609,7 @@ def predict(trees, rnn, classifier, epsilon=1e-16):
 if __name__ == '__main__':
 
     import dependency_tree as tr     
-    merged = False
-    trainTrees = tr.loadTrees("train", merged=merged)
+    trainTrees = tr.loadTrees("train")
     print "train number %d"%len(trainTrees)
      
     numW = len(tr.loadWordMap())
@@ -644,9 +628,9 @@ if __name__ == '__main__':
     rnn.initialParams(word2vecs, rng=rng)
     minibatch = 200
 
-    optimizer = SGD(rep_model=rnn, rng=rng, merged=merged, alpha=0.01, optimizer='adadelta')
+    optimizer = SGD(rep_model=rnn, rng=rng, alpha=0.01, optimizer='adagrad')
 
-    devTrees = tr.loadTrees("dev", merged=merged)
+    devTrees = tr.loadTrees("dev")
 
     best_dev_score  = 0.
 
