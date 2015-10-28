@@ -497,9 +497,9 @@ class SGD:
 
         #param_update_1_u = rho*param_update_1+(1. - rho)*(gparam ** 2) 
         self.gradt_mlp_1 = [rho*gt+(1.0-rho)*(g**2) for gt,g in zip(self.gradt_mlp_1, grad)]
-
+ 
         #dparam = -T.sqrt((param_update_2 + eps) / (param_update_1_u + eps)) * gparam
-        dparam = [ -np.sqrt( (gt2+eps) / (gt1+eps) ) * g for gt1, gt2, g in zip(self.gradt_mlp_1, self.gradt_mlp_2, grad)]
+        dparam = [ -(np.sqrt(gt2+eps) / np.sqrt(gt1+eps) ) * g for gt1, gt2, g in zip(self.gradt_mlp_1, self.gradt_mlp_2, grad)]
 
         self.update_hw_mlp_d(dparam[0])
         self.update_hb_mlp_d(dparam[1])
@@ -507,7 +507,7 @@ class SGD:
         self.update_lb_mlp_d(dparam[3])
 
         #updates.append((param_update_2, rho*param_update_2+(1. - rho)*(dparam ** 2)))
-        self.gradt_mlp_2 = [dt + (1.0-rho)*(d**2) for dt, d in zip(self.gradt_mlp_2, dparam)]
+        self.gradt_mlp_2 = [rho*dt + (1.0-rho)*(d ** 2) for dt, d in zip(self.gradt_mlp_2, dparam)]
 
     def adagrad_rnn(self, grad, eps=1e-6):
 
@@ -532,10 +532,10 @@ class SGD:
     def adadelta_rnn(self, grad, eps=1e-6, rho=0.95):
 
         #param_update_1_u = rho*param_update_1+(1. - rho)*(gparam ** 2) 
-        self.gradt_rnn_1[1:] = [rho*gt+(1.0-rho)*(g**2) for gt,g in zip(self.gradt_rnn_1[1:], grad[1:])]
+        self.gradt_rnn_1[1:] = [rho*gt+(1.0-rho) * (g ** 2) for gt,g in zip(self.gradt_rnn_1[1:], grad[1:])]
 
         #dparam = -T.sqrt((param_update_2 + eps) / (param_update_1_u + eps)) * gparam
-        dparam = [ -np.sqrt( (gt2+eps) / (gt1+eps) ) * g for gt1, gt2, g in zip(self.gradt_rnn_1[1:], self.gradt_rnn_2[1:], grad[1:])]
+        dparam = [ - (np.sqrt(gt2+eps) / np.sqrt(gt1+eps) ) * g for gt1, gt2, g in zip(self.gradt_rnn_1[1:], self.gradt_rnn_2[1:], grad[1:])]
         
         self.rep_model.stack[1:] = [P+ dP for P,dP in zip(self.rep_model.stack[1:],dparam)]
 
@@ -544,17 +544,17 @@ class SGD:
         dLt_2 = self.gradt_rnn_2[0]
 
         for j in range(self.rep_model.numWords):
-            dLt_1[:,j] = rho*dLt_1[:,j]+(1.0-rho)*(dL[:,j]**2)
-            dL[:,j] = dL[:,j]*(-np.sqrt((dLt_2[:,j]+eps)/(dLt_1[:,j]+eps)))
+            dLt_1[:,j] = rho*dLt_1[:,j]+(1.0-rho)*(dL[:,j] ** 2)
+            dL[:,j] = -( np.sqrt(dLt_2[:,j]+eps)/ np.sqrt(dLt_1[:,j]+eps) ) * dL[:,j]
 
             #update
-            dLt_2[:,j] += (1.0-rho)*(dL[:,j]**2)
+            dLt_2[:,j] = rho*dLt_2[:,j] + (1.0-rho)*(dL[:,j] ** 2)
 
         for j in range(self.rep_model.numWords):
             self.rep_model.L[:,j] += dL[:,j]
 
         #updates.append((param_update_2, rho*param_update_2+(1. - rho)*(dparam ** 2)))
-        self.gradt_rnn_2[1:] = [dt + (1.0-rho)*(d**2) for dt, d in zip(self.gradt_rnn_2[1:], dparam)]
+        self.gradt_rnn_2[1:] = [rho*dt + (1.0-rho)*( d** 2) for dt, d in zip(self.gradt_rnn_2[1:], dparam)]
 
 
 def predict(trees, rnn, classifier, epsilon=1e-16):
@@ -644,7 +644,7 @@ if __name__ == '__main__':
     rnn.initialParams(word2vecs, rng=rng)
     minibatch = 200
 
-    optimizer = SGD(rep_model=rnn, rng=rng, merged=merged, alpha=0.01, optimizer='adagrad')
+    optimizer = SGD(rep_model=rnn, rng=rng, merged=merged, alpha=0.01, optimizer='adadelta')
 
     devTrees = tr.loadTrees("dev", merged=merged)
 
