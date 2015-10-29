@@ -14,7 +14,6 @@ def sigmoid_grad(f):
     f = f*(1-f)    
     return f
 
-
 class LogisticRegression(object):
 
     def __init__(self, input, n_in, n_out):
@@ -528,11 +527,13 @@ class SGD:
         deltas_1 = T.dot(hidden_layer_W_1, T.grad(cost,hidden_layer_b))
         deltas_2 = T.dot(hidden_layer_W_2, T.grad(cost,hidden_layer_b))
 
+
         #grad_function = theano.function([x,y], T.grad(cost,hidden_layer_b), allow_input_downcast=True)
         self.deltas_function_1 = theano.function([x_1,x_2,y], deltas_1, allow_input_downcast=True)
         self.deltas_function_2 = theano.function([x_1,x_2,y], deltas_2, allow_input_downcast=True)
 
         gparams = [T.grad(cost, param) for param in self.classifier.params]
+
         self.accu_grad = theano.function(inputs=[x_1, x_2, y], outputs=gparams,allow_input_downcast=True)
 
 
@@ -543,6 +544,8 @@ class SGD:
 
         #self.update_params_mlp = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
         """
+        #for gradient check
+        self.cost_function = theano.function(inputs=[x_1, x_2, y], outputs=cost ,allow_input_downcast=True)
       
         gparam_hw_1 = T.fmatrix('gparam_hw_1')
         updates_hw_1 = [(self.classifier.params[0], self.classifier.params[0] - self.learning_rate * gparam_hw_1)]
@@ -664,8 +667,8 @@ class SGD:
                 deltas_2 = self.deltas_function_2(mul_rep, sub_rep, td)
 
                 self.rep_model.backProp(item[0], deltas_1)
-                self.rep_model.backProp(item[0], deltas_2)
-                self.rep_model.backProp(item[1], deltas_1)
+                #self.rep_model.backProp(item[0], deltas_2)
+                #self.rep_model.backProp(item[1], deltas_1)
                 self.rep_model.backProp(item[1], deltas_2)
                 
 
@@ -723,6 +726,68 @@ class SGD:
                 self.adadelta_rnn(self.rep_model.dstack)
 
         return self.rep_model, self.mlp_forward
+
+    def costAndGrad(self, trainData, epsilon = 1e-16):
+
+        np.random.shuffle(mbData)
+
+        targetData = np.zeros((len(trainData), self.rep_model.outputDim+1))
+
+        for i, (score, item) in enumerate(trainData):
+            sim = score
+            ceil = np.ceil(sim)
+            floor = np.floor(sim)
+            if ceil == floor:
+                targetData[i, floor] = 1
+            else:
+                targetData[i, floor] = ceil-sim 
+                targetData[i, ceil] = sim-floor
+
+        targetData = targetData[:, 1:]
+
+        d_hidden_w_1 = np.zeros((self.classifier.hiddenLayer.params[0].shape.eval()))
+        d_hidden_w_2 = np.zeros((self.classifier.hiddenLayer.params[1].shape.eval()))
+        d_hidden_b = np.zeros((self.classifier.hiddenLayer.params[2].shape.eval()))
+        d_log_w = np.zeros((self.classifier.logRegressionLayer.params[0].shape.eval()))
+        d_log_b = np.zeros((self.classifier.logRegressionLayer.params[1].shape.eval()))
+
+        d_mlp = [d_hidden_w_1, d_hidden_w_2, d_hidden_b, d_log_w, d_log_b]
+
+        cost = 0.
+
+        for i, (score, item) in enumerate(trainData): 
+
+            td = targetData[i]
+            td += epsilon
+
+            first_tree_rep = self.rep_model.forwardProp(item[0])
+            second_tree_rep = self.rep_model.forwardProp(item[1])
+            mul_rep = first_tree_rep * second_tree_rep
+            sub_rep = np.abs(first_tree_rep-second_tree_rep)
+    
+            deltas_1 = self.deltas_function_1(mul_rep, sub_rep, td)
+            deltas_2 = self.deltas_function_2(mul_rep, sub_rep, td)
+
+            self.rep_model.backProp(item[0], deltas_1)
+            #self.rep_model.backProp(item[0], deltas_2)
+            #self.rep_model.backProp(item[1], deltas_1)
+            self.rep_model.backProp(item[1], deltas_2)
+            
+            [dhw_1, dhw_2, dhb, dlw, dlb] = self.accu_grad(mul_rep, sub_rep, td)
+            d_hidden_w_1 += dhw_1
+            d_hidden_w_2 += dhw_2
+            d_hidden_b += dhb
+            d_log_w += dlw
+            d_log_b += dlb
+
+            cost += self.cost_function(mul_rep, sub_rep, td)
+
+        cost = cost / len(trainData)
+
+        grad = self.rep_model.dstack + d_mlp
+
+        return cost , grad
+
 
     def adagrad_mlp(self, grad):
 
@@ -863,6 +928,45 @@ def predict(trees, rnn, mlp_forward, epsilon=1e-16):
 
     return cost/len(trees), pearsonr(corrects,guesses)[0]
 
+def check_grad(sgd, data, epsilon=1e-6):
+        cost, grad = sgd.costAndGrad(data)
+        err1 = 0.0
+        count = 0.0
+
+        hw_1 = sgd.classifier.hiddenLayer.params[0].eval()
+        hw_2 = sgd.classifier.hiddenLayer.params[1].eval()
+        hb = sgd.classifier.hiddenLayer.params[2].eval()
+        log_w = sgd.classifier.logRegressionLayer.params[0].eval()
+        log_b = sgd.classifier.logRegressionLayer.params[1].eval()
+
+        mlp_stack = [hw_1, hw_2, hb, log_w, log_b]
+
+        stack = sgd.rep_model.stack + mlp_stack
+
+        print "Checking dW... (might take a while)"
+        idx =0
+        for W,dW in zip(stack[1:],grad[1:]):
+            print idx
+            idx += 1
+            W = W[...,None,None] # add dimension since bias is flat
+            dW = dW[...,None,None] 
+            for i in xrange(W.shape[0]):
+                for j in xrange(W.shape[1]):
+                    for k in xrange(W.shape[2]):
+                        W[i,j,k] += epsilon
+                        costP,_ = sgd.costAndGrad(data)
+                        W[i,j,k] -= epsilon
+                        numGrad = (costP - cost)/epsilon
+                        err = np.abs(dW[i,j,k] - numGrad)
+                        #print "Analytic %.9f, Numerical %.9f, Relative Error %.9f"%(dW[i,j,k],numGrad,err)
+                        err1+=err
+                        count+=1
+
+        if 0.001 > err1/count:
+            print "Grad Check Passed for dW"
+        else:
+            print "Grad Check Failed for dW: Sum of Error = %.9f" % (err1/count)
+
 
 if __name__ == '__main__':
 
@@ -881,10 +985,19 @@ if __name__ == '__main__':
 
     rng = np.random.RandomState(1234)
 
-    #rnn = depTreeRnnModel(relNum, wvecDim, outputDim)
-    rnn = depTreeLSTMModel(wvecDim, outputDim)
+    rnn = depTreeRnnModel(relNum, wvecDim, outputDim)
+    #rnn = depTreeLSTMModel(wvecDim, outputDim)
 
     rnn.initialParams(word2vecs, rng=rng)
+
+    """
+    print "Numerical gradient check..."
+    mbData = trainTrees[:4]
+    optimizer = SGD(rep_model=rnn, rng=rng, alpha=0.01, optimizer='adadelta')
+    check_grad(optimizer, mbData)
+    """
+
+    
     minibatch = 200
 
     optimizer = SGD(rep_model=rnn, rng=rng, alpha=0.01, optimizer='adadelta')
@@ -907,7 +1020,7 @@ if __name__ == '__main__':
         else:
             print "iter:%d cost: %f dev_score: %f"%(e, cost, dev_score)
 
-
+    
 
 
 
