@@ -9,6 +9,11 @@ def sigmoid(x):
     x = 1/(1+np.exp(-x))    
     return x
 
+def sigmoid_grad(f):
+    """ Sigmoid gradient function """
+    f = f*(1-f)    
+    return f
+
 
 class LogisticRegression(object):
 
@@ -394,13 +399,14 @@ class depTreeLSTMModel:
             # node is leaf
             if len(curr.kids) == 0:
 
-                i_t = sigmoid( np.dot(self.Wi, cuur.vec) + self.bi)
-                f_t = sigmoid( np.dot(self.Wf, cuur.vec) + self.bf)
-                o_t = sigmoid( np.dot(self.Wo, cuur.vec) + self.bo)
-                u_t = np.tanh( np.dot(self.Wu, cuur.vec) + self.bu)
+                i_t = sigmoid( np.dot(self.Wi, curr.vec) + self.bi)
+                f_t = sigmoid( np.dot(self.Wf, curr.vec) + self.bf)
+                o_t = sigmoid( np.dot(self.Wo, curr.vec) + self.bo)
+                u_t = np.tanh( np.dot(self.Wu, curr.vec) + self.bu)
                 c_t = i_t * u_t
 
                 curr.hAct= o_t * np.tanh(c_t)
+                curr.c_t = c_t
 
                 curr.finished=True
 
@@ -416,12 +422,23 @@ class depTreeLSTMModel:
 
                 if all_done:
                     sum = np.zeros((self.wvecDim))
-                    for i, rel in curr.kids:
-                        pass
-                        rel_vec = self.WR[rel.index]
-                        sum += rel_vec.dot(tree.nodes[i].hAct) 
 
-                    curr.hAct = np.tanh(sum + self.WV.dot(curr.vec) + self.b)
+                    sum_2 = np.zeros((self.wvecDim))
+                    for i, rel in curr.kids:
+                        sum += tree.nodes[i].hAct 
+
+                        f_k = sigmoid( np.dot(self.Wf, curr.vec) + np.dot(self.Uf, tree.nodes[i].hAct )+ self.bf)
+                        sum_2 += f_k * tree.nodes[i].c_t
+
+                    i_t = sigmoid( np.dot(self.Wi, curr.vec) + np.dot(self.Ui, sum)+ self.bi)
+                    o_t = sigmoid( np.dot(self.Wo, curr.vec) + np.dot(self.Uo, sum)+ self.bo)
+                    u_t = np.tanh( np.dot(self.Wu, curr.vec) + np.dot(self.Uu, sum)+ self.bu)
+
+                    c_t = i_t * u_t + sum_2
+
+                    curr.hAct= o_t * np.tanh(c_t)
+                    curr.c_t = c_t
+
                     curr.finished = True
 
                 else:
@@ -447,21 +464,33 @@ class depTreeLSTMModel:
 
             else:
 
-                # derivative of tanh
-                curr.deltas *= (1-curr.hAct**2)
+                deltas_o_j = curr.deltas
+                deltas_c_j = curr.deltas*(1-curr.hAct**2)
 
-                self.dWV += np.outer(curr.deltas, curr.vec)
-                self.db += curr.deltas
+                self.dWo += np.outer(deltas_o_j, curr.vec)
+                self.dUo += np.outer(deltas_o_j, curr.hAct)
+                self.dbo += deltas_o_j
+
+
+                self.dWi += np.outer(deltas_c_j, curr.vec)
+                self.dUi += np.outer(deltas_c_j, curr.hAct)
+                self.dbi += deltas_c_j
+
+                self.dWo += np.outer(deltas_c_j, curr.vec)
+                self.dUo += np.outer(deltas_c_j, curr.hAct)
+                self.dbo += deltas_c_j
 
                 for i, rel in curr.kids:
 
                     kid = tree.nodes[i]
                     to_do.append(kid)
 
-                    self.dWR[rel.index] += np.outer(curr.deltas, kid.hAct)
+                    self.dWf += np.outer(deltas_c_j, kid.vec)
+                    self.dUf += np.outer(deltas_c_j, kid.hAct)
+                    self.dbf += deltas_c_j
 
-                    rel_vec = self.WR[rel.index]
-                    kid.deltas = np.dot(rel_vec.T, curr.deltas)
+                    kid.deltas = deltas_c_j
+
 
 
 class SGD:
@@ -559,8 +588,6 @@ class SGD:
         self.update_lw_mlp_d = theano.function(inputs=[gparam_lw_d], updates=updates_lw_d, allow_input_downcast=True)
         self.update_lb_mlp_d = theano.function(inputs=[gparam_lb_d], updates=updates_lb_d, allow_input_downcast=True)
 
-
-        
 
         self.optimizer = optimizer
 
@@ -854,7 +881,8 @@ if __name__ == '__main__':
 
     rng = np.random.RandomState(1234)
 
-    rnn = depTreeRnnModel(relNum, wvecDim, outputDim)
+    #rnn = depTreeRnnModel(relNum, wvecDim, outputDim)
+    rnn = depTreeLSTMModel(wvecDim, outputDim)
 
     rnn.initialParams(word2vecs, rng=rng)
     minibatch = 200
