@@ -32,17 +32,13 @@ class LogisticRegression(object):
 
         self.params = [self.W, self.b]
 
-        self.input = input
-
 #T.tanh
 class HiddenLayer(object):
-    def __init__(self, rng, input, n_in, n_out, W=None, b=None,
+    def __init__(self, rng, input_1, input_2, n_in, n_out, W_1=None, W_2=None, b=None,
                  activation=T.nnet.sigmoid):
 
-        self.input = input
-
-        if W is None:
-            W_values = np.asarray(
+        if W_1 is None:
+            W_1_values = np.asarray(
                 rng.uniform(
                     low=-np.sqrt(6. / (n_in + n_out)),
                     high=np.sqrt(6. / (n_in + n_out)),
@@ -51,37 +47,57 @@ class HiddenLayer(object):
                 dtype=theano.config.floatX
             )
             if activation == theano.tensor.nnet.sigmoid:
-                W_values *= 4
+                W_1_values *= 4
 
-            W = theano.shared(value=W_values, name='W', borrow=True)
+            W_1 = theano.shared(value=W_1_values, name='W_1', borrow=True)
+
+        if W_2 is None:
+            W_2_values = np.asarray(
+                rng.uniform(
+                    low=-np.sqrt(6. / (n_in + n_out)),
+                    high=np.sqrt(6. / (n_in + n_out)),
+                    size=(n_in, n_out)
+                ),
+                dtype=theano.config.floatX
+            )
+            if activation == theano.tensor.nnet.sigmoid:
+                W_2_values *= 4
+
+            W_2 = theano.shared(value=W_2_values, name='W_2', borrow=True)
+
 
         if b is None:
             b_values = np.zeros((n_out,), dtype=theano.config.floatX)
             b = theano.shared(value=b_values, name='b', borrow=True)
 
-        self.W = W
+        self.W_1 = W_1
+        self.W_2 = W_2
         self.b = b
 
+        """
         lin_output = T.dot(input, self.W) + self.b
+        """
+        lin_output = T.dot(input_1, self.W_1) + T.dot(input_2, self.W_2) + self.b
+
         self.output = (
             lin_output if activation is None
             else activation(lin_output)
         )
 
+
         # parameters of the model
-        self.params = [self.W, self.b]
+        self.params = [self.W_1, self.W_2, self.b]
 
 class MLP(object):
 
-    def __init__(self, rng, input, n_in, n_hidden, n_out):
+    def __init__(self, rng, input_1, input_2, n_in, n_hidden, n_out):
 
         self.numLabels = n_out
 
-        self.input = input
-
         self.hiddenLayer = HiddenLayer(
             rng=rng,
-            input=self.input,
+            input_1=input_1,
+            input_2=input_2,
             n_in=n_in,
             n_out=n_hidden,
             activation=T.nnet.sigmoid
@@ -96,12 +112,12 @@ class MLP(object):
         )
 
         self.L1 = (
-            abs(self.hiddenLayer.W).sum()
+            abs(self.hiddenLayer.W_1).sum() + abs(self.hiddenLayer.W_2).sum()
             + abs(self.logRegressionLayer.W).sum()
         )
 
         self.L2_sqr = (
-            (self.hiddenLayer.W ** 2).sum()
+            (self.hiddenLayer.W_1 ** 2).sum() + (self.hiddenLayer.W_2 ** 2).sum()
             + (self.logRegressionLayer.W ** 2).sum()
         )
 
@@ -115,13 +131,13 @@ class MLP(object):
         return T.dot(y, (T.log(y) - T.log(x)).T) / self.numLabels
 
 
-    def predict_p(self, new_data):
+    def predict_p(self, x_1, x_2):
 
-        W_hidden, b_hidden = self.hiddenLayer.params
+        W_1_hidden, W_2_hidden, b_hidden = self.hiddenLayer.params
 
         W_lg, b_lg = self.logRegressionLayer.params
 
-        output = T.nnet.sigmoid(T.dot(new_data, W_hidden) + b_hidden)
+        output = T.nnet.sigmoid( T.dot(x_1, W_1_hidden) + T.dot(x_2, W_2_hidden) + b_hidden)
 
         p_y_given_x = T.nnet.softmax(T.dot(output, W_lg) + b_lg)
 
@@ -264,12 +280,17 @@ class SGD:
 
         self.learning_rate = alpha # learning rate
 
-        x = T.fvector('x')  # the data is presented as one sentence output
+
+        x_1 = T.fvector('x_1')  # the data is presented as one sentence output
+        x_2 = T.fvector('x_2')  # the data is presented as one sentence output
         y = T.fvector('y')  # the target distribution
 
         # construct the MLP class
-        self.classifier = MLP(rng=rng,input=x, n_in=self.rep_model.wvecDim,
+        self.classifier = MLP(rng=rng,input_1=x_1, input_2=x_2, n_in=self.rep_model.wvecDim,
                             n_hidden=50,n_out=self.rep_model.outputDim)
+
+   
+        self.mlp_forward = theano.function([x_1,x_2], self.classifier.predict_p(x_1,x_2), allow_input_downcast=True)
         
         L1_reg=0.00
         L2_reg=0.0001 
@@ -278,15 +299,19 @@ class SGD:
         #cost = classifier.kl_divergence(y)
         #cost_function = theano.function([x,y], cost, allow_input_downcast=True)
 
-        hidden_layer_W = self.classifier.hiddenLayer.params[0]
-        hidden_layer_b = self.classifier.hiddenLayer.params[1]
+        hidden_layer_W_1 = self.classifier.hiddenLayer.params[0]
+        hidden_layer_W_2 = self.classifier.hiddenLayer.params[1]
+        hidden_layer_b = self.classifier.hiddenLayer.params[2]
 
-        deltas = T.dot(hidden_layer_W, T.grad(cost,hidden_layer_b))
+        deltas_1 = T.dot(hidden_layer_W_1, T.grad(cost,hidden_layer_b))
+        deltas_2 = T.dot(hidden_layer_W_2, T.grad(cost,hidden_layer_b))
 
         #grad_function = theano.function([x,y], T.grad(cost,hidden_layer_b), allow_input_downcast=True)
-        self.deltas_function = theano.function([x,y], deltas, allow_input_downcast=True)
+        self.deltas_function_1 = theano.function([x_1,x_2,y], deltas_1, allow_input_downcast=True)
+        self.deltas_function_2 = theano.function([x_1,x_2,y], deltas_2, allow_input_downcast=True)
 
         gparams = [T.grad(cost, param) for param in self.classifier.params]
+        self.accu_grad = theano.function(inputs=[x_1, x_2, y], outputs=gparams,allow_input_downcast=True)
 
 
         """
@@ -297,43 +322,52 @@ class SGD:
         #self.update_params_mlp = theano.function(inputs=[x, y], outputs=cost, updates=updates,allow_input_downcast=True)
         """
       
-        gparam_hw = T.fmatrix('gparam_hw')
-        updates_hw = [(self.classifier.params[0], self.classifier.params[0] - self.learning_rate * gparam_hw)]
+        gparam_hw_1 = T.fmatrix('gparam_hw_1')
+        updates_hw_1 = [(self.classifier.params[0], self.classifier.params[0] - self.learning_rate * gparam_hw_1)]
+
+        gparam_hw_2 = T.fmatrix('gparam_hw_2')
+        updates_hw_2 = [(self.classifier.params[1], self.classifier.params[1] - self.learning_rate * gparam_hw_2)]
 
         gparam_hb = T.fvector('gparam_hb')
-        updates_hb = [(self.classifier.params[1], self.classifier.params[1] - self.learning_rate * gparam_hb)]
+        updates_hb = [(self.classifier.params[2], self.classifier.params[2] - self.learning_rate * gparam_hb)]
 
         gparam_lw = T.fmatrix('gparam_lw')
-        updates_lw = [(self.classifier.params[2], self.classifier.params[2] - self.learning_rate * gparam_lw)]
+        updates_lw = [(self.classifier.params[3], self.classifier.params[3] - self.learning_rate * gparam_lw)]
 
         gparam_lb = T.fvector('gparam_lb')
-        updates_lb = [(self.classifier.params[3], self.classifier.params[3] - self.learning_rate * gparam_lb)]
+        updates_lb = [(self.classifier.params[4], self.classifier.params[4] - self.learning_rate * gparam_lb)]
 
-        self.update_hw_mlp = theano.function(inputs=[gparam_hw], updates=updates_hw, allow_input_downcast=True)
+        self.update_hw_1_mlp = theano.function(inputs=[gparam_hw_1], updates=updates_hw_1, allow_input_downcast=True)
+        self.update_hw_2_mlp = theano.function(inputs=[gparam_hw_2], updates=updates_hw_2, allow_input_downcast=True)
         self.update_hb_mlp = theano.function(inputs=[gparam_hb], updates=updates_hb, allow_input_downcast=True)
         self.update_lw_mlp = theano.function(inputs=[gparam_lw], updates=updates_lw, allow_input_downcast=True)
         self.update_lb_mlp = theano.function(inputs=[gparam_lb], updates=updates_lb, allow_input_downcast=True)
 
 
-        gparam_hw_d = T.fmatrix('gparam_hw_d')
-        updates_hw_d = [(self.classifier.params[0], self.classifier.params[0] + gparam_hw_d)]
+        gparam_hw_1_d = T.fmatrix('gparam_hw_1_d')
+        updates_hw_1_d = [(self.classifier.params[0], self.classifier.params[0] + gparam_hw_1_d)]
+
+        gparam_hw_2_d = T.fmatrix('gparam_hw_2_d')
+        updates_hw_2_d = [(self.classifier.params[1], self.classifier.params[1] + gparam_hw_2_d)]
 
         gparam_hb_d = T.fvector('gparam_hb_d')
-        updates_hb_d = [(self.classifier.params[1], self.classifier.params[1] + gparam_hb_d)]
+        updates_hb_d = [(self.classifier.params[2], self.classifier.params[2] + gparam_hb_d)]
 
         gparam_lw_d = T.fmatrix('gparam_lw_d')
-        updates_lw_d = [(self.classifier.params[2], self.classifier.params[2] + gparam_lw_d)]
+        updates_lw_d = [(self.classifier.params[3], self.classifier.params[3] + gparam_lw_d)]
 
         gparam_lb_d = T.fvector('gparam_lb_d')
-        updates_lb_d = [(self.classifier.params[3], self.classifier.params[3] + gparam_lb_d)]
+        updates_lb_d = [(self.classifier.params[4], self.classifier.params[4] + gparam_lb_d)]
 
-        self.update_hw_mlp_d = theano.function(inputs=[gparam_hw_d], updates=updates_hw_d, allow_input_downcast=True)
+
+        self.update_hw_1_mlp_d = theano.function(inputs=[gparam_hw_1_d], updates=updates_hw_1_d, allow_input_downcast=True)
+        self.update_hw_2_mlp_d = theano.function(inputs=[gparam_hw_2_d], updates=updates_hw_2_d, allow_input_downcast=True)
         self.update_hb_mlp_d = theano.function(inputs=[gparam_hb_d], updates=updates_hb_d, allow_input_downcast=True)
         self.update_lw_mlp_d = theano.function(inputs=[gparam_lw_d], updates=updates_lw_d, allow_input_downcast=True)
         self.update_lb_mlp_d = theano.function(inputs=[gparam_lb_d], updates=updates_lb_d, allow_input_downcast=True)
 
 
-        self.accu_grad = theano.function(inputs=[x,y], outputs=gparams,allow_input_downcast=True)
+        
 
         self.optimizer = optimizer
 
@@ -381,12 +415,13 @@ class SGD:
 
             targets = targetData[index * batchSize: (index + 1) * batchSize]
 
-            d_hidden_w = np.zeros((self.classifier.hiddenLayer.params[0].shape.eval()))
-            d_hidden_b = np.zeros((self.classifier.hiddenLayer.params[1].shape.eval()))
+            d_hidden_w_1 = np.zeros((self.classifier.hiddenLayer.params[0].shape.eval()))
+            d_hidden_w_2 = np.zeros((self.classifier.hiddenLayer.params[1].shape.eval()))
+            d_hidden_b = np.zeros((self.classifier.hiddenLayer.params[2].shape.eval()))
             d_log_w = np.zeros((self.classifier.logRegressionLayer.params[0].shape.eval()))
             d_log_b = np.zeros((self.classifier.logRegressionLayer.params[1].shape.eval()))
 
-            d_mlp = [d_hidden_w, d_hidden_b, d_log_w, d_log_b]
+            d_mlp = [d_hidden_w_1, d_hidden_w_2, d_hidden_b, d_log_w, d_log_b]
 
             for i, (score, item) in enumerate(batchData): 
 
@@ -400,18 +435,23 @@ class SGD:
                 #merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
                 #merged_tree_rep = np.concatenate((sub_rep, sub_rep))
                 #merged_tree_rep = mul_rep
-                merged_tree_rep = sub_rep
+                #merged_tree_rep = sub_rep
 
 
                 #due to hidden_layer_b_grad equal delta up, so based on error propogation
-                deltas = self.deltas_function(merged_tree_rep, td) # (n_hidden,)
+                #deltas = self.deltas_function(merged_tree_rep, td) # (n_hidden,)
+                deltas_1 = self.deltas_function_1(mul_rep, sub_rep, td)
+                deltas_2 = self.deltas_function_2(mul_rep, sub_rep, td)
 
-                self.rep_model.backProp(item[0], deltas)
-                self.rep_model.backProp(item[1], deltas)
+                self.rep_model.backProp(item[0], deltas_1)
+                self.rep_model.backProp(item[0], deltas_2)
+                self.rep_model.backProp(item[1], deltas_1)
+                self.rep_model.backProp(item[1], deltas_2)
                 
 
-                [dhw, dhb, dlw, dlb] = self.accu_grad(merged_tree_rep, td)
-                d_hidden_w += dhw
+                [dhw_1, dhw_2, dhb, dlw, dlb] = self.accu_grad(mul_rep, sub_rep, td)
+                d_hidden_w_1 += dhw_1
+                d_hidden_w_2 += dhw_2
                 d_hidden_b += dhb
                 d_log_w += dlw
                 d_log_b += dlb
@@ -434,10 +474,11 @@ class SGD:
             if self.optimizer == 'sgd':
 
                 #begin to update mlp parameters
-                self.update_hw_mlp(d_mlp[0])
-                self.update_hb_mlp(d_mlp[1])
-                self.update_lw_mlp(d_mlp[2])
-                self.update_lb_mlp(d_mlp[3])
+                self.update_hw_1_mlp(d_mlp[0])
+                self.update_hw_2_mlp(d_mlp[1])
+                self.update_hb_mlp(d_mlp[2])
+                self.update_lw_mlp(d_mlp[3])
+                self.update_lb_mlp(d_mlp[4])
 
                 #begin to update rnn parameters
                 update = self.rep_model.dstack
@@ -461,7 +502,7 @@ class SGD:
 
                 self.adadelta_rnn(self.rep_model.dstack)
 
-        return self.rep_model, self.classifier
+        return self.rep_model, self.mlp_forward
 
     def adagrad_mlp(self, grad):
 
@@ -469,10 +510,11 @@ class SGD:
 
         update =  [g*(1./np.sqrt(gt)) for gt,g in zip(self.gradt_mlp,grad)]
 
-        self.update_hw_mlp(update[0])
-        self.update_hb_mlp(update[1])
-        self.update_lw_mlp(update[2])
-        self.update_lb_mlp(update[3])
+        self.update_hw_1_mlp(update[0])
+        self.update_hw_2_mlp(update[1])
+        self.update_hb_mlp(update[2])
+        self.update_lw_mlp(update[3])
+        self.update_lb_mlp(update[4])
 
     def adadelta_mlp(self, grad, eps=1e-6, rho=0.95):
 
@@ -482,10 +524,11 @@ class SGD:
         #dparam = -T.sqrt((param_update_2 + eps) / (param_update_1_u + eps)) * gparam
         dparam = [ -(np.sqrt(gt2+eps) / np.sqrt(gt1+eps) ) * g for gt1, gt2, g in zip(self.gradt_mlp_1, self.gradt_mlp_2, grad)]
 
-        self.update_hw_mlp_d(dparam[0])
-        self.update_hb_mlp_d(dparam[1])
-        self.update_lw_mlp_d(dparam[2])
-        self.update_lb_mlp_d(dparam[3])
+        self.update_hw_1_mlp_d(dparam[0])
+        self.update_hw_2_mlp_d(dparam[1])
+        self.update_hb_mlp_d(dparam[2])
+        self.update_lw_mlp_d(dparam[3])
+        self.update_lb_mlp_d(dparam[4])
 
         #updates.append((param_update_2, rho*param_update_2+(1. - rho)*(dparam ** 2)))
         self.gradt_mlp_2 = [rho*dt + (1.0-rho)*(d ** 2) for dt, d in zip(self.gradt_mlp_2, dparam)]
@@ -538,7 +581,7 @@ class SGD:
         self.gradt_rnn_2[1:] = [rho*dt + (1.0-rho)*( d** 2) for dt, d in zip(self.gradt_rnn_2[1:], dparam)]
 
 
-def predict(trees, rnn, classifier, epsilon=1e-16):
+def predict(trees, rnn, mlp_forward, epsilon=1e-16):
 
     # get target distribution for batch
     targets = np.zeros((len(trees), rnn.outputDim+1))
@@ -555,10 +598,6 @@ def predict(trees, rnn, classifier, epsilon=1e-16):
             targets[i, ceil] = sim-floor
 
     targets = targets[:, 1:]
-
-    x = T.fvector('x')  # the data is presented as one sentence output
-   
-    mlp_forward = theano.function([x], classifier.predict_p(x), allow_input_downcast=True)
 
     cost = 0
     corrects = []
@@ -582,9 +621,8 @@ def predict(trees, rnn, classifier, epsilon=1e-16):
             sub_rep = np.abs(first_tree_rep-second_tree_rep)
             #merged_tree_rep = np.concatenate((first_tree_rep, second_tree_rep))
             #merged_tree_rep = mul_rep
-            merged_tree_rep = sub_rep
-            pd = mlp_forward(merged_tree_rep)
-
+            #merged_tree_rep = sub_rep
+            pd = mlp_forward(mul_rep,sub_rep)
 
         predictScore = pd.reshape(rnn.outputDim).dot(np.array([1,2,3,4,5]))
 
@@ -628,7 +666,7 @@ if __name__ == '__main__':
     rnn.initialParams(word2vecs, rng=rng)
     minibatch = 200
 
-    optimizer = SGD(rep_model=rnn, rng=rng, alpha=0.01, optimizer='adagrad')
+    optimizer = SGD(rep_model=rnn, rng=rng, alpha=0.01, optimizer='adadelta')
 
     devTrees = tr.loadTrees("dev")
 
