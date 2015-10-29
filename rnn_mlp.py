@@ -1,9 +1,13 @@
 import numpy as np
-
 import theano
 import theano.tensor as T
 
 from scipy.stats import pearsonr
+
+def sigmoid(x):
+    """ Sigmoid function """
+    x = 1/(1+np.exp(-x))    
+    return x
 
 
 class LogisticRegression(object):
@@ -32,7 +36,6 @@ class LogisticRegression(object):
 
         self.params = [self.W, self.b]
 
-#T.tanh
 class HiddenLayer(object):
     def __init__(self, rng, input_1, input_2, n_in, n_out, W_1=None, W_2=None, b=None,
                  activation=T.nnet.sigmoid):
@@ -208,8 +211,197 @@ class depTreeRnnModel:
 
             # node is leaf
             if len(curr.kids) == 0:
+
                 # activation function is the normalized tanh
                 curr.hAct= np.tanh(np.dot(self.WV,curr.vec) + self.b)
+                curr.finished=True
+
+            else:
+
+                #check if all kids are finished
+                all_done = True
+                for index, rel in curr.kids:
+                    node = tree.nodes[index]
+                    if not node.finished:
+                        to_do.append(node)
+                        all_done = False
+
+                if all_done:
+
+                    sum = np.zeros((self.wvecDim))
+                    for i, rel in curr.kids:
+                        rel_vec = self.WR[rel.index]
+                        sum += rel_vec.dot(tree.nodes[i].hAct) 
+
+                    curr.hAct = np.tanh(sum + self.WV.dot(curr.vec) + self.b)
+                    curr.finished = True
+
+                else:
+                    to_do.append(curr)
+        
+        return tree.root.hAct
+
+
+    def backProp(self, tree, deltas):
+
+        to_do = []
+        to_do.append(tree.root)
+
+        tree.root.deltas = deltas
+
+        while to_do:
+
+            curr = to_do.pop(0)
+
+            if len(curr.kids) == 0:
+
+                self.dL[:, curr.index] += curr.deltas
+
+            else:
+
+                # derivative of tanh
+                curr.deltas *= (1-curr.hAct**2)
+
+                self.dWV += np.outer(curr.deltas, curr.vec)
+                self.db += curr.deltas
+
+                for i, rel in curr.kids:
+
+                    kid = tree.nodes[i]
+                    to_do.append(kid)
+
+                    self.dWR[rel.index] += np.outer(curr.deltas, kid.hAct)
+
+                    rel_vec = self.WR[rel.index]
+                    kid.deltas = np.dot(rel_vec.T, curr.deltas)
+
+class depTreeLSTMModel:
+
+    def __init__(self, wvecDim, outputDim):
+
+        self.wvecDim = wvecDim
+        self.outputDim = outputDim
+
+
+    def initialParams(self, word2vecs, rng):
+
+        # Word vectors
+        self.numWords = word2vecs.shape[1]
+        self.L = word2vecs[:self.wvecDim, :]
+
+        self.Wi = rng.uniform(
+                    low=-np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    high=np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    size=(self.wvecDim, self.wvecDim)
+                    )
+
+        self.Ui = rng.uniform(
+                    low=-np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    high=np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    size=(self.wvecDim, self.wvecDim)
+                    )
+
+        self.bi = np.zeros((self.wvecDim))
+
+        self.Wf = rng.uniform(
+                    low=-np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    high=np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    size=(self.wvecDim, self.wvecDim)
+                    )
+
+        self.Uf = rng.uniform(
+                    low=-np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    high=np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    size=(self.wvecDim, self.wvecDim)
+                    )
+
+        self.bf = np.zeros((self.wvecDim))
+
+        self.Wo = rng.uniform(
+                    low=-np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    high=np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    size=(self.wvecDim, self.wvecDim)
+                    )
+
+        self.Uo = rng.uniform(
+                    low=-np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    high=np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    size=(self.wvecDim, self.wvecDim)
+                    )
+
+        self.bo = np.zeros((self.wvecDim))
+
+        self.Wu = rng.uniform(
+                    low=-np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    high=np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    size=(self.wvecDim, self.wvecDim)
+                    )
+
+        self.Uu = rng.uniform(
+                    low=-np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    high=np.sqrt(6. / (self.wvecDim + self.wvecDim)),
+                    size=(self.wvecDim, self.wvecDim)
+                    )
+
+        self.bu = np.zeros((self.wvecDim))
+
+
+        self.stack = [self.L, self.Wi, self.Ui, self.bi, self.Wf, self.Uf, self.bf,
+                              self.Wo, self.Uo, self.bo, self.Wu, self.Uu, self.bu ]
+
+    def initialGrads(self):
+
+        #create with default_factory : defaultVec = lambda : np.zeros((wvecDim,))
+        #make the defaultdict useful for building a dictionary of np array
+        #this is very good to save memory, However, this may not support for multiprocess due to pickle error
+
+        #defaultVec = lambda : np.zeros((wvecDim,))
+        #dL = collections.defaultdict(defaultVec)
+        self.dL = np.zeros((self.wvecDim, self.numWords))
+        self.dWi = np.zeros((self.wvecDim, self.wvecDim))
+        self.dUi = np.zeros((self.wvecDim, self.wvecDim))
+        self.dbi = np.zeros(self.wvecDim)
+
+        self.dWf = np.zeros((self.wvecDim, self.wvecDim))
+        self.dUf = np.zeros((self.wvecDim, self.wvecDim))
+        self.dbf = np.zeros(self.wvecDim)
+
+        self.dWo = np.zeros((self.wvecDim, self.wvecDim))
+        self.dUo = np.zeros((self.wvecDim, self.wvecDim))
+        self.dbo = np.zeros(self.wvecDim)
+
+        self.dWu = np.zeros((self.wvecDim, self.wvecDim))
+        self.dUu = np.zeros((self.wvecDim, self.wvecDim))
+        self.dbu = np.zeros(self.wvecDim)
+
+        self.dstack = [self.dL, self.dWi, self.dUi, self.dbi, self.dWf, self.dUf, self.dbf,
+                                self.dWo, self.dUo, self.dbo, self.dWu, self.dUu, self.dbu ]
+        
+
+    def forwardProp(self, tree):
+
+        #because many training epoch. 
+        tree.resetFinished()
+
+        to_do = []
+        to_do.append(tree.root)
+
+        while to_do:
+        
+            curr = to_do.pop(0)
+            curr.vec = self.L[:, curr.index]
+
+            # node is leaf
+            if len(curr.kids) == 0:
+
+                i_t = sigmoid( np.dot(self.Wi, cuur.vec) + self.bi)
+                f_t = sigmoid( np.dot(self.Wf, cuur.vec) + self.bf)
+                o_t = sigmoid( np.dot(self.Wo, cuur.vec) + self.bo)
+                u_t = np.tanh( np.dot(self.Wu, cuur.vec) + self.bu)
+                c_t = i_t * u_t
+
+                curr.hAct= o_t * np.tanh(c_t)
+
                 curr.finished=True
 
             else:
@@ -270,6 +462,7 @@ class depTreeRnnModel:
 
                     rel_vec = self.WR[rel.index]
                     kid.deltas = np.dot(rel_vec.T, curr.deltas)
+
 
 class SGD:
 
