@@ -1,32 +1,10 @@
-def check_grad_backup(self,data,epsilon=1e-6):
+import numpy as np
 
-    self.initialGrads()
-    cost, grad = self.costAndGrad(data)
+def check_wordEmbedding_grad(optimizer,data,epsilon=1e-6):
+    raise "current not work"
     err1 = 0.0
     count = 0.0
-
-    print "Checking dW... (might take a while)"
-    for W,dW in zip(self.stack[1:],grad[1:]):
-        W = W[...,None,None] # add dimension since bias is flat
-        dW = dW[...,None,None] 
-        for i in xrange(W.shape[0]):
-            for j in xrange(W.shape[1]):
-                for k in xrange(W.shape[2]):
-                    W[i,j,k] += epsilon
-                    costP,_ = self.costAndGrad(data)
-                    W[i,j,k] -= epsilon
-                    numGrad = (costP - cost)/epsilon
-                    err = np.abs(dW[i,j,k] - numGrad)
-                    #print "Analytic %.9f, Numerical %.9f, Relative Error %.9f"%(dW[i,j,k],numGrad,err)
-                    err1+=err
-                    count+=1
-
-    if 0.001 > err1/count:
-        print "Grad Check Passed for dW"
-    else:
-        print "Grad Check Failed for dW: Sum of Error = %.9f" % (err1/count)
     
-    """
     # check dL separately since dict
     dL = grad[0]
     L = self.stack[0]
@@ -48,50 +26,70 @@ def check_grad_backup(self,data,epsilon=1e-6):
         print "Grad Check Passed for dL"
     else:
         print "Grad Check Failed for dL: Sum of Error = %.9f" % (err2/count)
-    """
 
-def check_grad(sgd, data, epsilon=1e-6):
-        cost, grad = sgd.costAndGrad(data)
-        err1 = 0.0
-        count = 0.0
+def check_param_grad(optimizer, data, epsilon=1e-6):
 
-        hw_1 = sgd.classifier.hiddenLayer.params[0].eval()
-        hw_2 = sgd.classifier.hiddenLayer.params[1].eval()
-        hb = sgd.classifier.hiddenLayer.params[2].eval()
-        log_w = sgd.classifier.logRegressionLayer.params[0].eval()
-        log_b = sgd.classifier.logRegressionLayer.params[1].eval()
 
-        mlp_stack = [hw_1, hw_2, hb, log_w, log_b]
+    cost, mlp_grad = optimizer.costAndGrad_theano_single_grad(data)
+    
+    err1 = 0.0
+    count = 0.0
 
-        stack = sgd.rep_model.stack + mlp_stack
+    hw_1 = optimizer.classifier.hiddenLayer.params[0].eval()
+    hw_2 = optimizer.classifier.hiddenLayer.params[1].eval()
+    hb = optimizer.classifier.hiddenLayer.params[2].eval()
+    log_w = optimizer.classifier.logRegressionLayer.params[0].eval()
+    log_b = optimizer.classifier.logRegressionLayer.params[1].eval()
 
-        print "Checking dW... (might take a while)"
-        idx =0
-        for W,dW in zip(stack[1:],grad[1:]):
-            print idx
-            idx += 1
-            W = W[...,None,None] # add dimension since bias is flat
-            dW = dW[...,None,None] 
-            for i in xrange(W.shape[0]):
-                for j in xrange(W.shape[1]):
-                    for k in xrange(W.shape[2]):
-                        W[i,j,k] += epsilon
-                        costP,_ = sgd.costAndGrad(data)
-                        W[i,j,k] -= epsilon
-                        numGrad = (costP - cost)/epsilon
-                        err = np.abs(dW[i,j,k] - numGrad)
-                        #print "Analytic %.9f, Numerical %.9f, Relative Error %.9f"%(dW[i,j,k],numGrad,err)
-                        err1+=err
-                        count+=1
+    mlp_stack = [hw_1, hw_2, hb, log_w, log_b]
 
-        if 0.001 > err1/count:
-            print "Grad Check Passed for dW"
-        else:
-            print "Grad Check Failed for dW: Sum of Error = %.9f" % (err1/count)
+    grad = optimizer.rep_model.dstack + mlp_grad
+
+    stack = optimizer.rep_model.stack + mlp_stack
+
+    print "Checking dW... (might take a while)"
+    idx =0
+    for W,dW in zip(stack[1:],grad[1:]):
+        print idx
+        idx += 1
+        W = W[...,None,None] # add dimension since bias is flat
+        dW = dW[...,None,None] 
+        for i in xrange(W.shape[0]):
+            for j in xrange(W.shape[1]):
+                for k in xrange(W.shape[2]):
+                    W[i,j,k] += epsilon
+                    costP,_ = optimizer.costAndGrad_theano_single_grad(data)
+                    W[i,j,k] -= epsilon
+                    numGrad = (costP - cost)/epsilon
+                    err = np.abs(dW[i,j,k] - numGrad)
+                    #print "Analytic %.9f, Numerical %.9f, Relative Error %.9f"%(dW[i,j,k],numGrad,err)
+                    err1+=err
+                    count+=1
+
+    if 0.001 > err1/count:
+        print "Grad Check Passed for dW"
+    else:
+        print "Grad Check Failed for dW: Sum of Error = %.9f" % (err1/count)
 
 if __name__ == '__main__':
     
     print "Numerical gradient check..."
+    import dependency_tree as tr     
+    trainTrees = tr.loadTrees("train")
+    print "train number %d"%len(trainTrees)
+    
     mbData = trainTrees[:4]
-    optimizer = SGD(rep_model=rnn, rng=rng, alpha=0.01, optimizer='adadelta')
-    check_grad(optimizer, mbData)
+
+    from optimization import Optimization
+     
+    optimizer = Optimization(alpha=0.01, optimizer="sgd")
+
+    wvecDim = 10
+    outputDim = 5
+    hiddenDim = 50
+
+    optimizer.initial_RepModel(tr, "RNN", wvecDim)
+
+    optimizer.initial_theano_mlp(hiddenDim, outputDim, batchMLP=False)
+
+    check_param_grad(optimizer, mbData)
