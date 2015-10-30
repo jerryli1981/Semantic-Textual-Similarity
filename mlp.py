@@ -16,6 +16,12 @@ def sigmoid(x):
     x = 1/(1+np.exp(-x))    
     return x
 
+def sigmoid_grad(f):
+    """ Sigmoid gradient function """
+    f = f*(1-f)
+    
+    return f
+
 class LogisticRegression(object):
 
     def __init__(self, input, n_in, n_out):
@@ -134,10 +140,13 @@ class MLP(object):
 
         self.output = self.logRegressionLayer.p_y_given_x
 
-    def kl_divergence(self, y):
+    def kl_divergence_single(self, y):
         newshape=(T.shape(self.output)[1],)
         x = T.reshape(self.output, newshape)
         return T.dot(y, (T.log(y) - T.log(x)).T) / self.numLabels
+
+    def kl_divergence_batch(self, y):
+        return T.sum(y * (T.log(y) - T.log(self.output))) / (self.numLabels * y.shape[0])
 
 
     def predict_p(self, x_1, x_2):
@@ -153,80 +162,104 @@ class MLP(object):
         return p_y_given_x
    
 
-class mlp_by_myself(object):
+class my_mlp(object):
 
-    def __init__(self):
-             #Sigmoid weights
-        #self.Wsg = 0.01*np.random.randn(self.sim_nhidden, self.wvecDim)
-        self.Wsg = np.random.rand(self.sim_nhidden, self.wvecDim) * 2 * r - r
+    def __init__(self, rng, n_in, n_hidden, n_out):
 
-        # Softmax weights
-        #self.Wsm = 0.01*np.random.randn(self.outputDim,self.sim_nhidden) # note this is " U " in the notes and the handout.. there is a reason for the change in notation
-        self.Wsm = np.random.rand(self.outputDim, self.sim_nhidden) * 2 * r - r
+        self.numLabels = n_out
 
-        self.bsm = np.zeros((self.outputDim))
+        self.W_1_hidden = rng.uniform(
+                    low=-np.sqrt(6. / (n_in + n_hidden)),
+                    high=np.sqrt(6. / (n_in + n_hidden)),
+                    size=(n_in, n_hidden)
+                )
 
-    def initialGrads(self):
+        self.W_2_hidden = rng.uniform(
+                    low=-np.sqrt(6. / (n_in + n_hidden)),
+                    high=np.sqrt(6. / (n_in + n_hidden)),
+                    size=(n_in, n_hidden)
+                )
 
-        self.dWsg = np.zeros((self.sim_nhidden, self.wvecDim))
-        self.dWsm = np.zeros((self.outputDim, self.sim_nhidden))
-        self.dbsm = np.zeros(self.outputDim)
+        self.b_hidden = np.zeros((n_hidden,))
 
-    def forwardProp():
+        self.W_logistic = rng.uniform(
+                    low=-np.sqrt(6. / (n_hidden + n_out)),
+                    high=np.sqrt(6. / (n_hidden + n_out)),
+                    size=(n_hidden, n_out)
+                )
 
-        # compute target distribution  
-        td = np.zeros(self.outputDim+1) 
-        sim = tree.score
-        ceil = np.ceil(sim)
-        floor = np.floor(sim)
-        if ceil == floor:
-            td[floor] = 1
-        else:
-            td[floor] = ceil-sim
-            td[ceil] = sim-floor
+        self.b_logistic = np.zeros((n_out,))
 
-        td = td[1:]
-        td += 1e-8
-        #compute similarity
-        tree.root.sigAct = sigmoid(np.dot(self.Wsg, tree.root.hAct)) #(sim_nhidden,)
-        pd= logsoftmax((np.dot(self.Wsm, tree.root.sigAct) + self.bsm).reshape(1, self.outputDim)) #(1, outputDim)
+
+
+        self.dW_1_hidden = np.zeros((n_in, n_hidden))
+
+        self.dW_2_hidden = np.zeros((n_in, n_hidden))
+
+        self.db_hidden = np.zeros((n_hidden,))
+
+        self.dW_logistic = np.zeros((n_hidden, n_out))
+
+        self.db_logistic = np.zeros((n_out,))
+
+        self.params = [self.W_1_hidden, self.W_2_hidden, self.b_hidden, self.W_logistic, self.b_logistic]
+
+        self.dstack = [self.dW_1_hidden, self.dW_2_hidden, self.db_hidden, self.dW_logistic, self.db_logistic]
+        
+
+    def forwardProp(self, input_1, input_2, td):
+
+        lin_output = np.dot(input_1, self.W_1_hidden) + np.dot(input_2, self.W_2_hidden) + self.b_hidden
+
+        activation = sigmoid(lin_output) #(n_hidden,)
+
+        pd= logsoftmax( (np.dot(activation, self.W_logistic) + self.b_logistic).reshape(1, self.numLabels)) #(1, outputDim)
         #KL divergence loss, loss(x, target) = \sum(target_i * (log(target_i) - x_i))
         log_td = np.log(td)
-        log_td[log_td == -inf] = 0
-        cost = np.dot(td, log_td-pd.reshape(self.outputDim)) / self.outputDim
 
-        tree.root.pd = np.exp(pd.reshape(self.outputDim))
-        tree.root.td = td
+        cost = np.dot(td, log_td - pd.reshape(self.numLabels) ) / self.numLabels
 
-        if test:
-            predictScore = np.exp(pd.reshape(self.outputDim)).dot(np.array([1,2,3,4,5]))
-            return cost, float("{0:.2f}".format(predictScore)), tree.score
-        else:
-            return cost
+        pd = np.exp(pd.reshape(self.numLabels))
 
-    def backwardProp():
+        return cost, activation, pd
 
-        norm = -1.0/self.outputDim
-        sim_grad = norm * tree.root.td
-        sim_grad[sim_grad == -0.] = 0
+    def backwardProp(self, input_1, input_2, activation, pd, td):
+
+        norm = -1.0/self.numLabels
+        deltas_kld = norm * td
+        deltas_kld[deltas_kld == -0.] = 0
         
         #softmax gradient
-        deltas_sm = sim_grad * (tree.root.pd * (1-tree.root.pd))
+        deltas_logistic = deltas_kld * (pd * (1 - pd))
 
-        self.dWsm += np.outer(deltas_sm,tree.root.sigAct)
-        self.dbsm += deltas_sm
-
-        deltas_sg = np.dot(self.Wsm.T, deltas_sm) #(n_hidden)
-  
-        
-        #f = f*(1-f)   
-
-        deltas_sg *= tree.root.sigAct*(1-tree.root.sigAct)
-
-        self.dWsg += np.outer(deltas_sg, tree.root.hAct)
-
-        tree.root.deltas = np.dot(self.Wsg.T,deltas_sg)
+        self.dW_logistic += np.outer(activation, deltas_logistic)
+        self.db_logistic += deltas_logistic
 
 
+        deltas_hidden = np.dot(self.W_logistic, deltas_logistic)
+
+        deltas_hidden *= sigmoid_grad(activation)
+
+        self.dW_1_hidden += np.outer(input_1, deltas_hidden)
+        self.dW_2_hidden += np.outer(input_2, deltas_hidden)
+        self.db_hidden += deltas_hidden
+
+
+        deltas_hidden_1 = np.dot(self.W_1_hidden, deltas_hidden) #(n_hidden)
+        deltas_hidden_2 = np.dot(self.W_2_hidden, deltas_hidden)
+
+        return deltas_hidden_1, deltas_hidden_2
+
+    def predict(self, input_1, input_2):
+
+        lin_output = np.dot(input_1, self.W_1_hidden) + np.dot(input_2, self.W_2_hidden) + self.b_hidden
+
+        activation = sigmoid(lin_output) #(n_hidden,)
+
+        pd= logsoftmax( (np.dot(activation, self.W_logistic) + self.b_logistic).reshape(1, self.numLabels)) #(1, outputDim)
+
+        pd = np.exp(pd.reshape(self.numLabels))
+
+        return pd
 
 
