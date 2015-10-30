@@ -6,12 +6,14 @@ set -x
 ###################
 
 # training params
-epochs=20000
-step=1e-2
+epochs=1000
+step=0.01
 numLabels=5
+hiddenDim=50
 wvecDim=100
 miniBatch=300
 model=RNN
+optimizer=adadelta
 
 
 ######################################################## 
@@ -21,7 +23,7 @@ outfile="models/${model}_wvecDim_${wvecDim}_step_${step}.bin"
 
 echo $outfile
 
-python -u main.py --step $step --epochs $epochs --outFile $outfile \
+python -u main.py --step $step --repModel $model --hiddenDim $hiddenDim --epochs $epochs --outFile $outfile \
                   				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
 
 
