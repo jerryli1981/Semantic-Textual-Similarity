@@ -1,6 +1,6 @@
 import numpy as np
 
-from mlp import sigmoid
+from utils import *
 
 class depTreeLSTMModel:
 

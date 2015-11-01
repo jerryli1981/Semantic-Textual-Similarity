@@ -5,7 +5,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Usage")
 
     parser.add_argument("--minibatch",dest="minibatch",type=int,default=30)
-    parser.add_argument("--optimizer",dest="optimizer",type=str,default="adagrad")
+    parser.add_argument("--optimizer",dest="optimizer",type=str,default=None)
     parser.add_argument("--epochs",dest="epochs",type=int,default=50)
     parser.add_argument("--step",dest="step",type=float,default=1e-2)
     parser.add_argument("--outputDim",dest="outputDim",type=int,default=5)
@@ -15,6 +15,7 @@ if __name__ == '__main__':
     parser.add_argument("--numProcess",dest="numProcess",type=int,default=None)
     parser.add_argument("--repModel",dest="repModel",type=str,default="lstm")
     parser.add_argument("--debug",dest="debug",type=str,default="False")
+    parser.add_argument("--activation",dest="activation",type=str,default=None)
     args = parser.parse_args()
 
     if args.debug == "True":
@@ -32,9 +33,9 @@ if __name__ == '__main__':
      
     optimizer = Optimization(alpha=args.step, optimizer=args.optimizer)
 
-    optimizer.initial_RepModel(tr, args.repModel, args.wvecDim)
+    optimizer.initial_RepModel(tr, args.repModel, args.wvecDim, args.activation)
 
-    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim)
+    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, args.activation)
 
 
     best_dev_score  = 0.

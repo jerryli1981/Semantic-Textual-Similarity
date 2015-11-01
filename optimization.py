@@ -11,6 +11,8 @@ from mlp import MLP
 import theano.tensor as T
 import theano
 
+from utils import *
+
 class Optimization:
 
     def __init__(self, alpha=0.01, optimizer='sgd'):
@@ -21,14 +23,14 @@ class Optimization:
 
         print "Using",self.optimizer
 
-    def initial_RepModel(self, dep_tree, model, wvecDim, epsilon = 1e-16):
+    def initial_RepModel(self, dep_tree, model, wvecDim, activation, epsilon = 1e-16):
 
         relNum = len(dep_tree.loadRelMap())
 
         word2vecs = dep_tree.loadWord2VecMap()
 
         if model == "RNN":
-            rep_model = depTreeRnnModel(relNum, wvecDim)
+            rep_model = depTreeRnnModel(relNum, wvecDim, activation)
         elif model == "LSTM":
             rep_model = depTreeLSTMModel(wvecDim)
 
@@ -47,16 +49,17 @@ class Optimization:
             self.gradt_rnn_2 = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
 
         
-    def initial_theano_mlp(self, hiddenDim, outputDim, epsilon = 1e-16):
+    def initial_theano_mlp(self, hiddenDim, outputDim, activation, epsilon = 1e-16):
 
         self.outputDim = outputDim
+        self.activation = activation
 
         x1_batch = T.fmatrix('x1_batch')  # n * d, the data is presented as one sentence output
         x2_batch = T.fmatrix('x2_batch')  # n * d, the data is presented as one sentence output
         y_batch = T.fmatrix('y_batch')  # n * d, the target distribution\
 
         self.classifier = MLP(rng=self.rng,input_1=x1_batch, input_2=x2_batch, n_in=self.rep_model.wvecDim,
-                                n_hidden=hiddenDim,n_out=outputDim)
+                                n_hidden=hiddenDim,n_out=outputDim,activation=activation)
 
         L1_reg=0.00
         L2_reg=0.0001 
@@ -69,6 +72,10 @@ class Optimization:
 
         self.delta_hw1 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw1, T.grad(cost,hb)), allow_input_downcast=True)
         self.delta_hw2 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw2, T.grad(cost,hb)), allow_input_downcast=True)
+        self.delta_ob = theano.function([x1_batch,x2_batch,y_batch], T.grad(cost,ob), allow_input_downcast=True)
+
+        act = self.classifier.hiddenLayer.output
+        self.act_function = theano.function([x1_batch,x2_batch], act, allow_input_downcast=True)
 
         update_sdg = [
                 (param, param - self.learning_rate * gparam)
@@ -167,7 +174,7 @@ class Optimization:
         for i, (score, item) in enumerate(trainData): 
 
             td = targetData[i]
-            td += epsilon
+            #td += epsilon
 
             first_tree_rep = self.rep_model.forwardProp(item[0])
             second_tree_rep = self.rep_model.forwardProp(item[1])
@@ -181,10 +188,36 @@ class Optimization:
             sub_rep_2d = sub_rep.reshape((1, self.rep_model.wvecDim))
             td_2d = td.reshape((1, self.outputDim))
 
+            
+            norm = -1.0/self.outputDim
+            sim_grad = norm * targetData[i]
+            sim_grad[sim_grad == -0.] = 0 
+
+            pd = self.mlp_forward(mul_rep_2d,sub_rep_2d).reshape(self.outputDim)
+            deltas_softmax = sim_grad * derivative_softmax(pd) #(5,)
+
+            deltas_hidden = np.dot(self.classifier.params[3].eval(), deltas_softmax)
+
+            act = self.act_function(mul_rep_2d, sub_rep_2d).reshape(50)
+
+            if self.activation == "tanh":
+                deltas_hidden *= derivative_tanh(act)
+            elif self.activation == "sigmoid":
+                deltas_hidden *= derivative_sigmoid(act)
+            else:
+                raise "incorrect activation function"
+
+
+            #delta_hw1 = np.dot(self.classifier.params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim) #(n_hidden)
+            #delta_hw2 = np.dot(self.classifier.params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim)
+
             delta_hw1 = self.delta_hw1(mul_rep_2d, sub_rep_2d, td_2d)  
-            delta_hw2 = self.delta_hw2(mul_rep_2d, sub_rep_2d, td_2d) 
+            delta_hw2 = self.delta_hw2(mul_rep_2d, sub_rep_2d, td_2d)
+          
 
             self.rep_model.backProp(item[0], delta_hw1)
+            self.rep_model.backProp(item[0], delta_hw2)
+            self.rep_model.backProp(item[1], delta_hw1)
             self.rep_model.backProp(item[1], delta_hw2)
 
 

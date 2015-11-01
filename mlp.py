@@ -1,31 +1,24 @@
 import theano.tensor as T
 import theano
 import numpy as np
-
-
-#these are for mlp_myself
-# LogSoftmax is defined as f_i(x) = log(1/a exp(x_i)), where a = sum_j exp(x_j).
-def logsoftmax(x):
-    N = x.shape[0]
-    x -= np.max(x,axis=1).reshape(N,1)
-    x = np.exp(x)/np.sum(np.exp(x),axis=1).reshape(N,1)
-    return np.log(x)
-
-def sigmoid(x):
-    """ Sigmoid function """
-    x = 1/(1+np.exp(-x))    
-    return x
-
-def sigmoid_grad(f):
-    """ Sigmoid gradient function """
-    f = f*(1-f)
-    
-    return f
+from utils import *
 
 class LogisticRegression(object):
 
-    def __init__(self, input, n_in, n_out):
+    def __init__(self, rng, input, n_in, n_out):
 
+        W_values = np.asarray(
+            rng.uniform(
+                low=-np.sqrt(6. / (n_in + n_out)),
+                high=np.sqrt(6. / (n_in + n_out)),
+                size=(n_in, n_out)
+            ),
+            dtype=theano.config.floatX
+        )
+
+        self.W = theano.shared(value=W_values, name='W', borrow=True)
+
+        """
         self.W = theano.shared(
             value=np.zeros(
                 (n_in, n_out),
@@ -34,6 +27,8 @@ class LogisticRegression(object):
             name='W',
             borrow=True
         )
+        """
+
         # initialize the biases b as a vector of n_out 0s
         self.b = theano.shared(
             value=np.zeros(
@@ -43,6 +38,7 @@ class LogisticRegression(object):
             name='b',
             borrow=True
         )
+        
 
         self.p_y_given_x = T.nnet.softmax(T.dot(input, self.W) + self.b)
 
@@ -106,9 +102,14 @@ class HiddenLayer(object):
 
 class MLP(object):
 
-    def __init__(self, rng, input_1, input_2, n_in, n_hidden, n_out):
+    def __init__(self, rng, input_1, input_2, n_in, n_hidden, n_out, activation):
 
         self.numLabels = n_out
+
+        if activation == "tanh":
+            act_function = T.tanh
+        elif activation == "sigmoid":
+            act_function = T.nnet.sigmoid
 
         self.hiddenLayer = HiddenLayer(
             rng=rng,
@@ -116,13 +117,13 @@ class MLP(object):
             input_2=input_2,
             n_in=n_in,
             n_out=n_hidden,
-            #activation=T.nnet.sigmoid
-            activation = T.tanh
+            activation=act_function
         )
 
         # The logistic regression layer gets as input the hidden units
         # of the hidden layer
         self.logRegressionLayer = LogisticRegression(
+            rng=rng,
             input=self.hiddenLayer.output,
             n_in=n_hidden,
             n_out=n_out

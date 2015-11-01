@@ -1,11 +1,13 @@
 import numpy as np
+from utils import *
 
 class depTreeRnnModel:
 
-    def __init__(self, relNum, wvecDim):
+    def __init__(self, relNum, wvecDim, activation):
 
         self.relNum = relNum
         self.wvecDim = wvecDim
+        self.activation = activation
 
     def initialParams_anotherway():
         
@@ -90,7 +92,13 @@ class depTreeRnnModel:
             if len(curr.kids) == 0:
 
                 # activation function is the normalized tanh
-                curr.hAct= np.tanh(np.dot(self.WV,curr.vec) + self.b)
+                if self.activation == "tanh":
+                    curr.hAct = np.tanh(np.dot(self.WV,curr.vec) + self.b)
+                elif self.activation == "sigmoid":
+                    curr.hAct = sigmoid(np.dot(self.WV,curr.vec) + self.b)
+                else:
+                    raise "incorrect activaton function"
+                
                 curr.finished=True
 
             else:
@@ -110,7 +118,12 @@ class depTreeRnnModel:
                         rel_vec = self.WR[rel.index]
                         sum += rel_vec.dot(tree.nodes[i].hAct) 
 
-                    curr.hAct = np.tanh(sum + self.WV.dot(curr.vec) + self.b)
+                    if self.activation == "tanh":        
+                        curr.hAct = np.tanh(sum + self.WV.dot(curr.vec) + self.b)
+                    elif self.activation == "sigmoid":
+                        curr.hAct = sigmoid(sum + self.WV.dot(curr.vec) + self.b)    
+                    else:
+                        raise "incorrect activation function"
                     curr.finished = True
 
                 else:
@@ -137,7 +150,12 @@ class depTreeRnnModel:
             else:
 
                 # derivative of tanh
-                curr.deltas *= (1-curr.hAct**2)
+                if self.activation == "tanh":
+                    curr.deltas *= derivative_tanh(curr.hAct)
+                elif self.activation == "sigmoid":
+                    curr.deltas *= derivative_sigmoid(curr.hAct)
+                else:
+                    raise "incorrect activation function"
 
                 self.dWV += np.outer(curr.deltas, curr.vec)
                 self.db += curr.deltas
