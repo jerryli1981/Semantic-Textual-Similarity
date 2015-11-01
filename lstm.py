@@ -1,9 +1,6 @@
 import numpy as np
 
-def sigmoid(x):
-    """ Sigmoid function """
-    x = 1/(1+np.exp(-x))    
-    return x
+from mlp import sigmoid
 
 class depTreeLSTMModel:
 

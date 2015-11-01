@@ -1,10 +1,5 @@
 if __name__ == '__main__':
-
-    __DEBUG__ = False
-    if __DEBUG__:
-        import pdb
-        pdb.set_trace()
-
+    
     import argparse
 
     parser = argparse.ArgumentParser(description="Usage")
@@ -19,7 +14,12 @@ if __name__ == '__main__':
     parser.add_argument("--outFile",dest="outFile",type=str, default="models/test.bin")
     parser.add_argument("--numProcess",dest="numProcess",type=int,default=None)
     parser.add_argument("--repModel",dest="repModel",type=str,default="lstm")
+    parser.add_argument("--debug",dest="debug",type=str,default="False")
     args = parser.parse_args()
+
+    if args.debug == "True":
+        import pdb
+        pdb.set_trace()
 
     
     import dependency_tree as tr     
@@ -34,8 +34,8 @@ if __name__ == '__main__':
 
     optimizer.initial_RepModel(tr, args.repModel, args.wvecDim)
 
-    #optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, batchMLP=False)
-    optimizer.initial_my_mlp(args.hiddenDim, args.outputDim)
+    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim)
+
 
     best_dev_score  = 0.
 
@@ -43,7 +43,7 @@ if __name__ == '__main__':
     for e in range(args.epochs):
         
         #print "Running epoch %d"%e
-        optimizer.train_with_my_mlp(trainTrees, args.minibatch)
+        optimizer.train_with_theano_mlp(trainTrees, args.minibatch)
         #print "Time per epoch : %f"%(end-start)
         cost, dev_score = optimizer.predict(devTrees)
         if dev_score > best_dev_score:

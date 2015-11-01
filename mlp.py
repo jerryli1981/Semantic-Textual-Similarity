@@ -48,6 +48,13 @@ class LogisticRegression(object):
 
         self.params = [self.W, self.b]
 
+        # keep track of model input
+        self.input = input
+                
+    def kl_divergence(self, y):
+
+        return T.sum(y * (T.log(y) - T.log(self.p_y_given_x))) / y.shape[0]
+
 class HiddenLayer(object):
     def __init__(self, rng, input_1, input_2, n_in, n_out, W_1=None, W_2=None, b=None,
                  activation=T.nnet.sigmoid):
@@ -61,7 +68,7 @@ class HiddenLayer(object):
                 ),
                 dtype=theano.config.floatX
             )
-            if activation == theano.tensor.nnet.sigmoid:
+            if activation == T.nnet.sigmoid:
                 W_1_values *= 4
 
             W_1 = theano.shared(value=W_1_values, name='W_1', borrow=True)
@@ -75,7 +82,7 @@ class HiddenLayer(object):
                 ),
                 dtype=theano.config.floatX
             )
-            if activation == theano.tensor.nnet.sigmoid:
+            if activation == T.nnet.sigmoid:
                 W_2_values *= 4
 
             W_2 = theano.shared(value=W_2_values, name='W_2', borrow=True)
@@ -89,19 +96,13 @@ class HiddenLayer(object):
         self.W_2 = W_2
         self.b = b
 
-        """
-        lin_output = T.dot(input, self.W) + self.b
-        """
         lin_output = T.dot(input_1, self.W_1) + T.dot(input_2, self.W_2) + self.b
 
-        self.output = (
-            lin_output if activation is None
-            else activation(lin_output)
-        )
-
+        self.output = activation(lin_output)
 
         # parameters of the model
         self.params = [self.W_1, self.W_2, self.b]
+
 
 class MLP(object):
 
@@ -115,7 +116,8 @@ class MLP(object):
             input_2=input_2,
             n_in=n_in,
             n_out=n_hidden,
-            activation=T.nnet.sigmoid
+            #activation=T.nnet.sigmoid
+            activation = T.tanh
         )
 
         # The logistic regression layer gets as input the hidden units
@@ -138,105 +140,97 @@ class MLP(object):
 
         self.params = self.hiddenLayer.params + self.logRegressionLayer.params
 
+        self.kl_divergence = self.logRegressionLayer.kl_divergence
+
         self.output = self.logRegressionLayer.p_y_given_x
 
-    def kl_divergence_single(self, y):
-        newshape=(T.shape(self.output)[1],)
-        x = T.reshape(self.output, newshape)
-        return T.dot(y, (T.log(y) - T.log(x)).T) / self.numLabels
-
-    def kl_divergence_batch(self, y):
-        return T.sum(y * (T.log(y) - T.log(self.output))) / (self.numLabels * y.shape[0])
-
-
-    def predict_p(self, x_1, x_2):
-
-        W_1_hidden, W_2_hidden, b_hidden = self.hiddenLayer.params
-
-        W_lg, b_lg = self.logRegressionLayer.params
-
-        output = T.nnet.sigmoid( T.dot(x_1, W_1_hidden) + T.dot(x_2, W_2_hidden) + b_hidden)
-
-        p_y_given_x = T.nnet.softmax(T.dot(output, W_lg) + b_lg)
-
-        return p_y_given_x
-   
 
 class my_mlp(object):
 
     def __init__(self, rng, n_in, n_hidden, n_out):
 
         self.numLabels = n_out
+        self.rng = rng
 
-        self.W_1_hidden = rng.uniform(
-                    low=-np.sqrt(6. / (n_in + n_hidden)),
-                    high=np.sqrt(6. / (n_in + n_hidden)),
-                    size=(n_in, n_hidden)
+        self.n_in = n_in
+        self.n_hidden = n_hidden
+        self.n_out = n_out
+
+    def initial_params_twoInput(self):
+
+        self.W_1_hidden = self.rng.uniform(
+                    low=-np.sqrt(6. / (self.n_in + self.n_hidden)),
+                    high=np.sqrt(6. / (self.n_in + self.n_hidden)),
+                    size=(self.n_in, self.n_hidden)
                 )
 
-        self.W_2_hidden = rng.uniform(
-                    low=-np.sqrt(6. / (n_in + n_hidden)),
-                    high=np.sqrt(6. / (n_in + n_hidden)),
-                    size=(n_in, n_hidden)
+        self.W_2_hidden = self.rng.uniform(
+                    low=-np.sqrt(6. / (self.n_in + self.n_hidden)),
+                    high=np.sqrt(6. / (self.n_in + self.n_hidden)),
+                    size=(self.n_in, self.n_hidden)
                 )
 
-        self.b_hidden = np.zeros((n_hidden,))
+        self.b_hidden = np.zeros((self.n_hidden,))
 
-        self.W_logistic = rng.uniform(
-                    low=-np.sqrt(6. / (n_hidden + n_out)),
-                    high=np.sqrt(6. / (n_hidden + n_out)),
-                    size=(n_hidden, n_out)
+        self.W_output = self.rng.uniform(
+                    low=-np.sqrt(6. / (self.n_hidden + self.n_out)),
+                    high=np.sqrt(6. / (self.n_hidden + self.n_out)),
+                    size=(self.n_hidden, self.n_out)
                 )
 
-        self.b_logistic = np.zeros((n_out,))
+        self.b_output = np.zeros((self.n_out,))
 
+        self.dW_1_hidden = np.zeros((self.n_in, self.n_hidden))
 
+        self.dW_2_hidden = np.zeros((self.n_in, self.n_hidden))
 
-        self.dW_1_hidden = np.zeros((n_in, n_hidden))
+        self.db_hidden = np.zeros((self.n_hidden,))
 
-        self.dW_2_hidden = np.zeros((n_in, n_hidden))
+        self.dW_output = np.zeros((self.n_hidden, self.n_out))
 
-        self.db_hidden = np.zeros((n_hidden,))
+        self.db_output = np.zeros((self.n_out,))
 
-        self.dW_logistic = np.zeros((n_hidden, n_out))
+        self.params = [self.W_1_hidden, self.W_2_hidden, self.b_hidden, self.W_output, self.b_output]
 
-        self.db_logistic = np.zeros((n_out,))
-
-        self.params = [self.W_1_hidden, self.W_2_hidden, self.b_hidden, self.W_logistic, self.b_logistic]
-
-        self.dstack = [self.dW_1_hidden, self.dW_2_hidden, self.db_hidden, self.dW_logistic, self.db_logistic]
+        self.dstack = [self.dW_1_hidden, self.dW_2_hidden, self.db_hidden, self.dW_output, self.db_output]
         
-
-    def forwardProp(self, input_1, input_2, td):
+    def forwardProp_2(self, input_1, input_2, td):
 
         lin_output = np.dot(input_1, self.W_1_hidden) + np.dot(input_2, self.W_2_hidden) + self.b_hidden
 
         activation = sigmoid(lin_output) #(n_hidden,)
 
-        pd= logsoftmax( (np.dot(activation, self.W_logistic) + self.b_logistic).reshape(1, self.numLabels)) #(1, outputDim)
+        pd= logsoftmax( (np.dot(activation, self.W_output) + self.b_output).reshape(1, self.numLabels)) #(1, outputDim)
         #KL divergence loss, loss(x, target) = \sum(target_i * (log(target_i) - x_i))
         log_td = np.log(td)
 
-        cost = np.dot(td, log_td - pd.reshape(self.numLabels) ) / self.numLabels
+        cost = np.dot(td, log_td - pd.reshape(self.numLabels) )
 
         pd = np.exp(pd.reshape(self.numLabels))
 
         return cost, activation, pd
 
-    def backwardProp(self, input_1, input_2, activation, pd, td):
-
+    def backwardProp_2(self, input_1, input_2, activation, pd, td):
+        
+        
         norm = -1.0/self.numLabels
         deltas_kld = norm * td
         deltas_kld[deltas_kld == -0.] = 0
         
+
         #softmax gradient
-        deltas_logistic = deltas_kld * (pd * (1 - pd))
+        #deltas_logistic = deltas_kld * sigmoid_grad(pd)
+        #softmax error. this is correct based on the consider softmax and cross entropy together.
+        # deltas is an error before activation
+        
+        deltas_softmax = deltas_kld * sigmoid_grad(pd)
+        #deltas_softmax = pd - td
 
-        self.dW_logistic += np.outer(activation, deltas_logistic)
-        self.db_logistic += deltas_logistic
+        self.dW_output += np.outer(activation, deltas_softmax)
+        self.db_output += deltas_softmax
 
 
-        deltas_hidden = np.dot(self.W_logistic, deltas_logistic)
+        deltas_hidden = np.dot(self.W_output, deltas_softmax)
 
         deltas_hidden *= sigmoid_grad(activation)
 
@@ -247,8 +241,9 @@ class my_mlp(object):
 
         deltas_hidden_1 = np.dot(self.W_1_hidden, deltas_hidden) #(n_hidden)
         deltas_hidden_2 = np.dot(self.W_2_hidden, deltas_hidden)
-
+        
         return deltas_hidden_1, deltas_hidden_2
+
 
     def predict(self, input_1, input_2):
 
@@ -261,5 +256,11 @@ class my_mlp(object):
         pd = np.exp(pd.reshape(self.numLabels))
 
         return pd
+
+
+    
+
+
+
 
 
