@@ -141,15 +141,15 @@ class depTreeRnnModel:
 
                 self.dWV += np.outer(curr.deltas, curr.vec)
                 self.db += curr.deltas
-                self.dL[:, curr.index] += curr.deltas
+                self.dL[:, curr.index] += np.dot(curr.deltas, self.WV)
 
             else:
-                
+
                 curr.deltas *= derivative_tanh(curr.hAct)
 
                 self.dWV += np.outer(curr.deltas, curr.vec)
                 self.db += curr.deltas
-                self.dL[:, curr.index] += curr.deltas
+                self.dL[:, curr.index] += np.dot(curr.deltas, self.WV)
 
                 for i, rel in curr.kids:
 

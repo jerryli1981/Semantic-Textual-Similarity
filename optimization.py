@@ -211,17 +211,17 @@ class Optimization:
                 raise "incorrect activation function"
 
 
-            #delta_hw1 = np.dot(self.classifier.params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim) #(n_hidden)
-            #delta_hw2 = np.dot(self.classifier.params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim)
+            delta_mul = np.dot(self.classifier.params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim) #(n_hidden)
+            delta_sub = np.dot(self.classifier.params[1].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim)
 
-            delta_hw1 = self.delta_hw1(mul_rep_2d, sub_rep_2d, td_2d)  
-            delta_hw2 = self.delta_hw2(mul_rep_2d, sub_rep_2d, td_2d)
+            delta_rep1 = sub_rep * delta_mul
+            delta_rep2 = mul_rep * delta_sub
+
+            #delta_hw1 = self.delta_hw1(mul_rep_2d, sub_rep_2d, td_2d)  
+            #delta_hw2 = self.delta_hw2(mul_rep_2d, sub_rep_2d, td_2d)
           
-
-            self.rep_model.backProp(item[0], delta_hw1)
-            self.rep_model.backProp(item[0], delta_hw2)
-            self.rep_model.backProp(item[1], delta_hw1)
-            self.rep_model.backProp(item[1], delta_hw2)
+            self.rep_model.backProp(item[0], delta_rep1)
+            self.rep_model.backProp(item[1], delta_rep2)
 
 
         return mul_reps, sub_reps, targetData

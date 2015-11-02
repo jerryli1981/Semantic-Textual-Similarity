@@ -204,7 +204,7 @@ class depTreeLSTMModel:
 
                 self.dWo += np.outer(delta_o_j, x_j)
                 self.dbo += delta_o_j
-                self.dL[:, curr.index] += delta_o_j
+                self.dL[:, curr.index] += np.dot(self.Wo, delta_o_j)
 
 
                 delta_c_j = delta_h_j.dot(derivative_tanh(curr.h_j))
@@ -213,14 +213,14 @@ class depTreeLSTMModel:
                 delta_i_j *= derivative_sigmoid(x_j)
                 self.dWi += np.outer(delta_i_j, x_j)
                 self.dbi += delta_i_j
-                self.dL[:, curr.index] += delta_i_j
+                self.dL[:, curr.index] += np.dot(self.Wi, delta_i_j)
 
 
                 delta_u_j = delta_c_j
                 delta_u_j *= derivative_sigmoid(x_j)
                 self.dWu += np.outer(delta_u_j, x_j)
                 self.dbu += delta_u_j
-                self.dL[:, curr.index] += delta_u_j
+                self.dL[:, curr.index] += np.dot(self.Wu, delta_u_j)
 
 
             else:
@@ -235,7 +235,7 @@ class depTreeLSTMModel:
                 self.dWo += np.outer(delta_o_j_1, x_j)
                 self.dUo += np.outer(delta_o_j_2, curr.h_j_hat)
                 self.dbo += delta_o_j_1
-                self.dL[:, curr.index] += delta_o_j_1
+                self.dL[:, curr.index] += np.dot(self.Wo, delta_o_j_1)
 
 
                 delta_c_j = delta_h_j * derivative_tanh(curr.h_j)
@@ -247,7 +247,7 @@ class depTreeLSTMModel:
                 self.dWi += np.outer(delta_i_j_1, x_j)
                 self.dUi += np.outer(delta_i_j_2, curr.h_j_hat)
                 self.dbi += delta_i_j_1
-                self.dL[:, curr.index] += delta_i_j_1
+                self.dL[:, curr.index] += np.dot(self.Wi, delta_i_j_1)
 
 
                 delta_u_j = delta_c_j
@@ -257,7 +257,7 @@ class depTreeLSTMModel:
                 self.dWu += np.outer(delta_u_j_1, x_j)
                 self.dUu += np.outer(delta_u_j_2, curr.h_j_hat)
                 self.dbu += delta_u_j_1
-                self.dL[:, curr.index] += delta_u_j_1
+                self.dL[:, curr.index] += np.dot(self.Wu, delta_u_j_1)
 
                 delta_f_jk = delta_c_j
                 delta_f_jk_1 = delta_f_jk * derivative_sigmoid(x_j)
