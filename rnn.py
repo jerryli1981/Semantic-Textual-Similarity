@@ -9,7 +9,7 @@ class depTreeRnnModel:
         self.wvecDim = wvecDim
         self.activation = activation
 
-    def initialParams_anotherway():
+    def initialParams_anotherway(self, word2vecs):
         
         #generate the same random number
         np.random.seed(12341)
@@ -92,13 +92,9 @@ class depTreeRnnModel:
             if len(curr.kids) == 0:
 
                 # activation function is the normalized tanh
-                if self.activation == "tanh":
-                    curr.hAct = np.tanh(np.dot(self.WV,curr.vec) + self.b)
-                elif self.activation == "sigmoid":
-                    curr.hAct = sigmoid(np.dot(self.WV,curr.vec) + self.b)
-                else:
-                    raise "incorrect activaton function"
-                
+                #curr.hAct = norm_tanh(np.dot(curr.vec, self.WV) + self.b)
+                curr.hAct = np.tanh(np.dot(curr.vec, self.WV) + self.b)
+
                 curr.finished=True
 
             else:
@@ -113,17 +109,14 @@ class depTreeRnnModel:
 
                 if all_done:
 
-                    sum = np.zeros((self.wvecDim))
+                    sum = np.zeros(self.wvecDim)
                     for i, rel in curr.kids:
-                        rel_vec = self.WR[rel.index]
-                        sum += rel_vec.dot(tree.nodes[i].hAct) 
+                        W_rel = self.WR[rel.index] # d * d
+                        sum += np.dot(tree.nodes[i].hAct, W_rel) 
 
-                    if self.activation == "tanh":        
-                        curr.hAct = np.tanh(sum + self.WV.dot(curr.vec) + self.b)
-                    elif self.activation == "sigmoid":
-                        curr.hAct = sigmoid(sum + self.WV.dot(curr.vec) + self.b)    
-                    else:
-                        raise "incorrect activation function"
+                    #curr.hAct = norm_tanh(sum + np.dot(curr.vec, self.WV) + self.b)
+                    curr.hAct = np.tanh(sum + np.dot(curr.vec, self.WV) + self.b)
+        
                     curr.finished = True
 
                 else:
@@ -142,23 +135,21 @@ class depTreeRnnModel:
         while to_do:
 
             curr = to_do.pop(0)
-
             if len(curr.kids) == 0:
-
-                self.dL[:, curr.index] += curr.deltas
-
-            else:
-
-                # derivative of tanh
-                if self.activation == "tanh":
-                    curr.deltas *= derivative_tanh(curr.hAct)
-                elif self.activation == "sigmoid":
-                    curr.deltas *= derivative_sigmoid(curr.hAct)
-                else:
-                    raise "incorrect activation function"
+       
+                curr.deltas *= derivative_tanh(curr.hAct)
 
                 self.dWV += np.outer(curr.deltas, curr.vec)
                 self.db += curr.deltas
+                self.dL[:, curr.index] += curr.deltas
+
+            else:
+                
+                curr.deltas *= derivative_tanh(curr.hAct)
+
+                self.dWV += np.outer(curr.deltas, curr.vec)
+                self.db += curr.deltas
+                self.dL[:, curr.index] += curr.deltas
 
                 for i, rel in curr.kids:
 

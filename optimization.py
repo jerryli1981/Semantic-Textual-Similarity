@@ -116,8 +116,11 @@ class Optimization:
 
     def train_with_theano_mlp(self, trainData, batchSize):
 
-        # to compare between different setttings
-        random.shuffle(trainData, lambda: .5)
+        # to compare between different setttings when debugging, but when real training, need remove lambda
+        #random.shuffle(trainData, lambda: .5)
+        # this is important
+        random.shuffle(trainData)
+
 
         batches = [trainData[idx : idx + batchSize] for idx in xrange(0, len(trainData), batchSize)]
 

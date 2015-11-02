@@ -118,16 +118,24 @@ class depTreeLSTMModel:
 
             # node is leaf
             if len(curr.kids) == 0:
+                # j is node id
+                x_j = curr.vec
+              
+                # hj is zero
+                i_j = sigmoid( np.dot(self.Wi, x_j) + self.bi)
 
-                i_t = sigmoid( np.dot(self.Wi, curr.vec) + self.bi)
-                f_t = sigmoid( np.dot(self.Wf, curr.vec) + self.bf)
-                o_t = sigmoid( np.dot(self.Wo, curr.vec) + self.bo)
-                u_t = np.tanh( np.dot(self.Wu, curr.vec) + self.bu)
-                c_t = i_t * u_t
+                # due to k is zero
+                f_jk = sigmoid( np.dot(self.Wf, x_j) + self.bf)
 
-                curr.hAct= o_t * np.tanh(c_t)
-                curr.c_t = c_t
+                o_j = sigmoid( np.dot(self.Wo, x_j) + self.bo)
 
+                u_j = np.tanh( np.dot(self.Wu, x_j) + self.bu)
+
+                c_j = i_j * u_j
+
+                curr.c_j = c_j
+                curr.h_j= o_j * np.tanh(c_j)
+                
                 curr.finished=True
 
             else:
@@ -141,30 +149,37 @@ class depTreeLSTMModel:
                         all_done = False
 
                 if all_done:
-                    sum = np.zeros((self.wvecDim))
 
-                    sum_2 = np.zeros((self.wvecDim))
+                    x_j = curr.vec
+
+                    h_j_hat = np.zeros((self.wvecDim))
+
+                    sum_f_jk_C_k = np.zeros((self.wvecDim))
+
                     for i, rel in curr.kids:
-                        sum += tree.nodes[i].hAct 
+                        h_j_hat += tree.nodes[i].h_j 
 
-                        f_k = sigmoid( np.dot(self.Wf, curr.vec) + np.dot(self.Uf, tree.nodes[i].hAct )+ self.bf)
-                        sum_2 += f_k * tree.nodes[i].c_t
+                        f_jk = sigmoid( np.dot(self.Wf, x_j) + np.dot(self.Uf, tree.nodes[i].h_j )+ self.bf)
+                        sum_f_jk_C_k += f_jk * tree.nodes[i].c_j
 
-                    i_t = sigmoid( np.dot(self.Wi, curr.vec) + np.dot(self.Ui, sum)+ self.bi)
-                    o_t = sigmoid( np.dot(self.Wo, curr.vec) + np.dot(self.Uo, sum)+ self.bo)
-                    u_t = np.tanh( np.dot(self.Wu, curr.vec) + np.dot(self.Uu, sum)+ self.bu)
+                    i_j = sigmoid( np.dot(self.Wi, x_j) + np.dot(self.Ui, h_j_hat)+ self.bi)
+                    o_j = sigmoid( np.dot(self.Wo, x_j) + np.dot(self.Uo, h_j_hat)+ self.bo)
+                    u_j = np.tanh( np.dot(self.Wu, x_j) + np.dot(self.Uu, h_j_hat)+ self.bu)
 
-                    c_t = i_t * u_t + sum_2
+                    c_j = i_j * u_j + sum_f_jk_C_k
 
-                    curr.hAct= o_t * np.tanh(c_t)
-                    curr.c_t = c_t
+                    curr.c_j = c_j
 
+                    curr.h_j= o_j * np.tanh(c_j)
+
+                    curr.h_j_hat = h_j_hat
+                    
                     curr.finished = True
 
                 else:
                     to_do.append(curr)
         
-        return tree.root.hAct
+        return tree.root.h_j
 
 
     def backProp(self, tree, deltas):
@@ -180,34 +195,84 @@ class depTreeLSTMModel:
 
             if len(curr.kids) == 0:
 
-                self.dL[:, curr.index] += curr.deltas
+                x_j = curr.vec
+
+                delta_h_j = curr.deltas
+                delta_o_j = delta_h_j
+                delta_o_j *= derivative_sigmoid(x_j)
+                
+
+                self.dWo += np.outer(delta_o_j, x_j)
+                self.dbo += delta_o_j
+                self.dL[:, curr.index] += delta_o_j
+
+
+                delta_c_j = delta_h_j.dot(derivative_tanh(curr.h_j))
+
+                delta_i_j = delta_c_j
+                delta_i_j *= derivative_sigmoid(x_j)
+                self.dWi += np.outer(delta_i_j, x_j)
+                self.dbi += delta_i_j
+                self.dL[:, curr.index] += delta_i_j
+
+
+                delta_u_j = delta_c_j
+                delta_u_j *= derivative_sigmoid(x_j)
+                self.dWu += np.outer(delta_u_j, x_j)
+                self.dbu += delta_u_j
+                self.dL[:, curr.index] += delta_u_j
+
 
             else:
 
-                deltas_o_j = curr.deltas
-                deltas_c_j = curr.deltas*(1-curr.hAct**2)
+                x_j = curr.vec
 
-                self.dWo += np.outer(deltas_o_j, curr.vec)
-                self.dUo += np.outer(deltas_o_j, curr.hAct)
-                self.dbo += deltas_o_j
+                delta_h_j = curr.deltas
+                delta_o_j = delta_h_j
+                delta_o_j_1 = delta_o_j * derivative_sigmoid(x_j)
+                delta_o_j_2 = delta_o_j * derivative_sigmoid(curr.h_j_hat)
+                
+                self.dWo += np.outer(delta_o_j_1, x_j)
+                self.dUo += np.outer(delta_o_j_2, curr.h_j_hat)
+                self.dbo += delta_o_j_1
+                self.dL[:, curr.index] += delta_o_j_1
 
 
-                self.dWi += np.outer(deltas_c_j, curr.vec)
-                self.dUi += np.outer(deltas_c_j, curr.hAct)
-                self.dbi += deltas_c_j
+                delta_c_j = delta_h_j * derivative_tanh(curr.h_j)
 
-                self.dWo += np.outer(deltas_c_j, curr.vec)
-                self.dUo += np.outer(deltas_c_j, curr.hAct)
-                self.dbo += deltas_c_j
+                delta_i_j = delta_c_j
+                delta_i_j_1 = delta_i_j * derivative_sigmoid(x_j)
+                delta_i_j_2 = delta_i_j * derivative_sigmoid(curr.h_j_hat)
+
+                self.dWi += np.outer(delta_i_j_1, x_j)
+                self.dUi += np.outer(delta_i_j_2, curr.h_j_hat)
+                self.dbi += delta_i_j_1
+                self.dL[:, curr.index] += delta_i_j_1
+
+
+                delta_u_j = delta_c_j
+                delta_u_j_1 = delta_u_j * derivative_sigmoid(x_j)
+                delta_u_j_2 = delta_u_j * derivative_sigmoid(curr.h_j_hat)
+
+                self.dWu += np.outer(delta_u_j_1, x_j)
+                self.dUu += np.outer(delta_u_j_2, curr.h_j_hat)
+                self.dbu += delta_u_j_1
+                self.dL[:, curr.index] += delta_u_j_1
+
+                delta_f_jk = delta_c_j
+                delta_f_jk_1 = delta_f_jk * derivative_sigmoid(x_j)
+                
+
+                self.dWf += np.outer(delta_f_jk_1, x_j)
+                self.dbf += delta_f_jk_1
 
                 for i, rel in curr.kids:
 
                     kid = tree.nodes[i]
                     to_do.append(kid)
 
-                    self.dWf += np.outer(deltas_c_j, kid.vec)
-                    self.dUf += np.outer(deltas_c_j, kid.hAct)
-                    self.dbf += deltas_c_j
+                    delta_f_jk_2 = delta_f_jk * derivative_sigmoid(kid.h_j)
+                    self.dUf += np.outer(delta_f_jk_2, kid.h_j)
 
-                    kid.deltas = deltas_c_j
+                    kid.deltas = np.dot(self.Uf, delta_c_j)
 
