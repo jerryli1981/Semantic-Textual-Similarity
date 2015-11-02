@@ -133,6 +133,12 @@ class depTreeLSTMModel:
 
                 c_j = i_j * u_j
 
+                curr.i_j = i_j
+
+                curr.u_j = u_j
+
+                curr.o_j = o_j
+
                 curr.c_j = c_j
                 curr.h_j= o_j * np.tanh(c_j)
                 
@@ -170,6 +176,12 @@ class depTreeLSTMModel:
 
                     curr.c_j = c_j
 
+                    curr.i_j = i_j
+
+                    curr.u_j = u_j
+
+                    curr.o_j = o_j
+
                     curr.h_j= o_j * np.tanh(c_j)
 
                     curr.h_j_hat = h_j_hat
@@ -198,7 +210,7 @@ class depTreeLSTMModel:
                 x_j = curr.vec
 
                 delta_h_j = curr.deltas
-                delta_o_j = delta_h_j
+                delta_o_j = delta_h_j * np.tanh(curr.c_j)
                 delta_o_j *= derivative_sigmoid(x_j)
                 
 
@@ -207,16 +219,16 @@ class depTreeLSTMModel:
                 self.dL[:, curr.index] += np.dot(self.Wo, delta_o_j)
 
 
-                delta_c_j = delta_h_j.dot(derivative_tanh(curr.h_j))
+                delta_c_j = curr.o_j * delta_h_j * derivative_tanh(curr.h_j)
 
-                delta_i_j = delta_c_j
+                delta_i_j = delta_c_j * curr.u_j
                 delta_i_j *= derivative_sigmoid(x_j)
                 self.dWi += np.outer(delta_i_j, x_j)
                 self.dbi += delta_i_j
                 self.dL[:, curr.index] += np.dot(self.Wi, delta_i_j)
 
 
-                delta_u_j = delta_c_j
+                delta_u_j = delta_c_j * curr.i_j
                 delta_u_j *= derivative_sigmoid(x_j)
                 self.dWu += np.outer(delta_u_j, x_j)
                 self.dbu += delta_u_j
@@ -228,7 +240,7 @@ class depTreeLSTMModel:
                 x_j = curr.vec
 
                 delta_h_j = curr.deltas
-                delta_o_j = delta_h_j
+                delta_o_j = delta_h_j * np.tanh(curr.c_j)
                 delta_o_j_1 = delta_o_j * derivative_sigmoid(x_j)
                 delta_o_j_2 = delta_o_j * derivative_sigmoid(curr.h_j_hat)
                 
@@ -238,7 +250,7 @@ class depTreeLSTMModel:
                 self.dL[:, curr.index] += np.dot(self.Wo, delta_o_j_1)
 
 
-                delta_c_j = delta_h_j * derivative_tanh(curr.h_j)
+                delta_c_j = curr.o_j * delta_h_j * derivative_tanh(curr.h_j)
 
                 delta_i_j = delta_c_j
                 delta_i_j_1 = delta_i_j * derivative_sigmoid(x_j)
@@ -250,7 +262,7 @@ class depTreeLSTMModel:
                 self.dL[:, curr.index] += np.dot(self.Wi, delta_i_j_1)
 
 
-                delta_u_j = delta_c_j
+                delta_u_j = delta_c_j * curr.i_j
                 delta_u_j_1 = delta_u_j * derivative_sigmoid(x_j)
                 delta_u_j_2 = delta_u_j * derivative_sigmoid(curr.h_j_hat)
 
@@ -259,20 +271,21 @@ class depTreeLSTMModel:
                 self.dbu += delta_u_j_1
                 self.dL[:, curr.index] += np.dot(self.Wu, delta_u_j_1)
 
-                delta_f_jk = delta_c_j
-                delta_f_jk_1 = delta_f_jk * derivative_sigmoid(x_j)
                 
-
-                self.dWf += np.outer(delta_f_jk_1, x_j)
-                self.dbf += delta_f_jk_1
 
                 for i, rel in curr.kids:
 
                     kid = tree.nodes[i]
                     to_do.append(kid)
 
+                    delta_f_jk = delta_c_j * kid.c_j
+                    delta_f_jk_1 = delta_f_jk * derivative_sigmoid(x_j)
+
+                    self.dWf += np.outer(delta_f_jk_1, x_j)
+                    self.dbf += delta_f_jk_1
+
                     delta_f_jk_2 = delta_f_jk * derivative_sigmoid(kid.h_j)
                     self.dUf += np.outer(delta_f_jk_2, kid.h_j)
 
-                    kid.deltas = np.dot(self.Uf, delta_c_j)
+                    kid.deltas = np.dot(self.Uf, delta_f_jk)
 
