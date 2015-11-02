@@ -1,39 +1,16 @@
 import numpy as np
 from utils import *
 
+import collections # for dL
+
 class depTreeRnnModel:
 
-    def __init__(self, relNum, wvecDim, activation):
+    def __init__(self, relNum, wvecDim):
 
         self.relNum = relNum
         self.wvecDim = wvecDim
-        self.activation = activation
 
-    def initialParams_anotherway(self, word2vecs):
-        
-        #generate the same random number
-        np.random.seed(12341)
-
-        r = np.sqrt(6)/np.sqrt(201)
-
-        # Word vectors
-        #self.L = 0.01*np.random.randn(self.wvecDim,self.numWords)
-        self.numWords = word2vecs.shape[1]
-        # scale by 0.01 can pass gradient check
-        self.L = word2vecs[:self.wvecDim, :]
-
-        # Relation layer parameters
-        #self.WR = 0.01*np.random.randn(self.relNum, self.wvecDim, self.wvecDim)
-        self.WR = np.random.rand(self.relNum, self.wvecDim, self.wvecDim) * 2 * r -r
-
-        # Hidden layer parameters 
-        #self.WV = 0.01*np.random.randn(self.wvecDim, self.wvecDim)
-        self.WV = np.random.rand(self.wvecDim, self.wvecDim) * 2 * r - r
-        self.b = np.zeros((self.wvecDim))
-
-
-        self.stack = [self.L, self.WR, self.WV, self.b]
-
+        self.defaultVec = lambda : np.zeros((wvecDim,))
 
     def initialParams(self, word2vecs, rng):
 
@@ -59,7 +36,6 @@ class depTreeRnnModel:
 
         self.stack = [self.L, self.WR, self.WV, self.b]
 
-    def initialGrads(self):
 
         #create with default_factory : defaultVec = lambda : np.zeros((wvecDim,))
         #make the defaultdict useful for building a dictionary of np array
@@ -67,13 +43,21 @@ class depTreeRnnModel:
 
         #defaultVec = lambda : np.zeros((wvecDim,))
         #dL = collections.defaultdict(defaultVec)
-        self.dL = np.zeros((self.wvecDim, self.numWords))
-        self.dWR = np.zeros((self.relNum, self.wvecDim, self.wvecDim))
-        self.dWV = np.zeros((self.wvecDim, self.wvecDim))
-        self.db = np.zeros(self.wvecDim)
+        # Gradients
+
+        # this is important to share memory, notice each epoch need clear this memory
+        self.dWR = np.empty((self.relNum, self.wvecDim, self.wvecDim))
+        self.dWV = np.empty((self.wvecDim, self.wvecDim))
+        self.db = np.empty(self.wvecDim)
+
+    def clearDerivativeSharedMemory(self):
+
+        self.dWR[:] = 0 
+        self.dWV[:] = 0
+        self.db[:] = 0
+        self.dL = collections.defaultdict(self.defaultVec)
 
         self.dstack = [self.dL, self.dWR, self.dWV, self.db]
-        
 
     def forwardProp(self, tree):
 
@@ -141,7 +125,8 @@ class depTreeRnnModel:
 
                 self.dWV += np.outer(curr.deltas, curr.vec)
                 self.db += curr.deltas
-                self.dL[:, curr.index] += np.dot(curr.deltas, self.WV)
+                #self.dL[:, curr.index] += np.dot(curr.deltas, self.WV)
+                self.dL[curr.index] += np.dot(curr.deltas, self.WV)
 
             else:
 
@@ -149,7 +134,8 @@ class depTreeRnnModel:
 
                 self.dWV += np.outer(curr.deltas, curr.vec)
                 self.db += curr.deltas
-                self.dL[:, curr.index] += np.dot(curr.deltas, self.WV)
+                #self.dL[:, curr.index] += np.dot(curr.deltas, self.WV)
+                self.dL[curr.index] += np.dot(curr.deltas, self.WV)
 
                 for i, rel in curr.kids:
 

@@ -11,33 +11,34 @@ from mlp import MLP
 import theano.tensor as T
 import theano
 
+
+
+import cPickle
+
 from utils import *
 
 class Optimization:
 
-    def __init__(self, alpha=0.01, optimizer='sgd'):
+    def __init__(self, outputFile, alpha=0.01, optimizer='sgd'):
 
         self.learning_rate = alpha # learning rate
         self.optimizer = optimizer
         self.rng = np.random.RandomState(1234)
-
+        self.outputFile = outputFile
         print "Using",self.optimizer
 
-    def initial_RepModel(self, dep_tree, model, wvecDim, activation, epsilon = 1e-16):
+    def initial_RepModel(self, dep_tree, model, wvecDim, epsilon = 1e-16):
 
         relNum = len(dep_tree.loadRelMap())
 
         word2vecs = dep_tree.loadWord2VecMap()
 
         if model == "RNN":
-            rep_model = depTreeRnnModel(relNum, wvecDim, activation)
+            self.rep_model = depTreeRnnModel(relNum, wvecDim)
         elif model == "LSTM":
-            rep_model = depTreeLSTMModel(wvecDim)
+            self.rep_model = depTreeLSTMModel(wvecDim)
 
-        rep_model.initialParams(word2vecs, rng=self.rng)
-
-        self.rep_model = rep_model
-        self.rep_model.initialGrads()
+        self.rep_model.initialParams(word2vecs, rng=self.rng)
 
         if self.optimizer == 'adagrad':
 
@@ -52,51 +53,50 @@ class Optimization:
     def initial_theano_mlp(self, hiddenDim, outputDim, activation, epsilon = 1e-16):
 
         self.outputDim = outputDim
-        self.hiddenDim = hiddenDim
         self.activation = activation
 
         x1_batch = T.fmatrix('x1_batch')  # n * d, the data is presented as one sentence output
         x2_batch = T.fmatrix('x2_batch')  # n * d, the data is presented as one sentence output
         y_batch = T.fmatrix('y_batch')  # n * d, the target distribution\
 
-        self.classifier = MLP(rng=self.rng,input_1=x1_batch, input_2=x2_batch, n_in=self.rep_model.wvecDim,
+        classifier = MLP(rng=self.rng,input_1=x1_batch, input_2=x2_batch, n_in=self.rep_model.wvecDim,
                                 n_hidden=hiddenDim,n_out=outputDim,activation=activation)
 
         L1_reg=0.00
         L2_reg=0.0001 
 
-        cost = self.classifier.kl_divergence(y_batch) + L1_reg * self.classifier.L1 + L2_reg * self.classifier.L2_sqr
+        cost = classifier.kl_divergence(y_batch) + L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
 
-        [hw1, hw2, hb, ow, ob] = self.classifier.params
+        [hw1, hw2, hb, ow, ob] = classifier.params
 
-        gparams = [ T.grad(cost, param) for param in self.classifier.params]
+        gparams = [ T.grad(cost, param) for param in classifier.params]
 
         self.delta_hw1 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw1, T.grad(cost,hb)), allow_input_downcast=True)
         self.delta_hw2 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw2, T.grad(cost,hb)), allow_input_downcast=True)
         self.delta_ob = theano.function([x1_batch,x2_batch,y_batch], T.grad(cost,ob), allow_input_downcast=True)
 
-        act = self.classifier.hiddenLayer.output
+        act = classifier.hiddenLayer.output
         self.act_function = theano.function([x1_batch,x2_batch], act, allow_input_downcast=True)
 
         update_sdg = [
                 (param, param - self.learning_rate * gparam)
-                for param, gparam in zip(self.classifier.params, gparams)
+                for param, gparam in zip(classifier.params, gparams)
         ]
 
         self.update_params_sdg = theano.function(inputs=[x1_batch, x2_batch, y_batch], outputs=cost,
                                 updates=update_sdg, allow_input_downcast=True)
 
 
-        self.gradt_mlp = [epsilon + T.zeros(W.shape) for W in self.classifier.params]
-        self.gradt_mlp_1 = [epsilon + T.zeros(W.shape) for W in self.classifier.params]
-        self.gradt_mlp_2 = [epsilon + T.zeros(W.shape) for W in self.classifier.params]
+        self.gradt_mlp = [epsilon + T.zeros(W.shape) for W in classifier.params]
+        self.gradt_mlp_1 = [epsilon + T.zeros(W.shape) for W in classifier.params]
+        self.gradt_mlp_2 = [epsilon + T.zeros(W.shape) for W in classifier.params]
 
 
         grad_updates_adagrad = self.adagrad_mlp(gparams)
 
         update_adagrad = [
                 (param, param - self.learning_rate * gparam)
-                for param, gparam in zip(self.classifier.params, grad_updates_adagrad)
+                for param, gparam in zip(classifier.params, grad_updates_adagrad)
         ]
 
         self.update_params_adagrad = theano.function(inputs=[x1_batch, x2_batch,y_batch], outputs=cost,
@@ -106,14 +106,14 @@ class Optimization:
 
         update_adadelta = [
                 (param, param + gparam)
-                for param, gparam in zip(self.classifier.params, grad_updates_adadelta)
+                for param, gparam in zip(classifier.params, grad_updates_adadelta)
         ]
 
         self.update_params_adadelta = theano.function(inputs=[x1_batch, x2_batch,y_batch], outputs=cost,
                                 updates=update_adadelta, allow_input_downcast=True)
 
         #for predict
-        self.mlp_forward = theano.function([x1_batch,x2_batch], self.classifier.output, allow_input_downcast=True)
+        self.mlp_forward = theano.function([x1_batch,x2_batch], classifier.output, allow_input_downcast=True)
 
     def train_with_theano_mlp(self, trainData, batchSize):
 
@@ -127,12 +127,13 @@ class Optimization:
 
         for index, batchData in enumerate(batches):
 
-            mul_reps, sub_reps, targetData = self.costAndGrad_theano_grad(batchData)
+            rep_model_dstack, mul_reps, sub_reps, targetData = self.costAndGrad_theano_grad(batchData)
 
             if self.optimizer == 'sgd':
+
                 self.update_params_sdg(mul_reps, sub_reps, targetData)
 
-                update = self.rep_model.dstack
+                update = rep_model_dstack
 
                 self.rep_model.stack[1:] = [P-self.learning_rate*dP for P,dP in zip(self.rep_model.stack[1:],update[1:])]
 
@@ -142,12 +143,13 @@ class Optimization:
                     self.rep_model.L[:,j] -= self.learning_rate*dL[:,j]
 
             elif self.optimizer == 'adagrad':
+
                 self.update_params_adagrad(mul_reps, sub_reps, targetData)
-                self.adagrad_rnn(self.rep_model.dstack)
+                self.adagrad_rnn(rep_model_dstack)
 
             elif self.optimizer == 'adadelta':
                 self.update_params_adadelta(mul_reps, sub_reps, targetData)
-                self.adadelta_rnn(self.rep_model.dstack)
+                self.adadelta_rnn(rep_model_dstack)
             else:
                 raise "optimizer is not defined"
 
@@ -158,7 +160,10 @@ class Optimization:
 
     def costAndGrad_theano_grad(self, trainData, epsilon = 1e-16):
 
-        targetData = np.zeros((len(trainData), self.classifier.numLabels+1))
+        # this is important to clear the share memory
+        self.rep_model.clearDerivativeSharedMemory()
+
+        targetData = np.zeros((len(trainData), self.outputDim+1))
 
         for i, (score, item) in enumerate(trainData):
             sim = score
@@ -192,7 +197,7 @@ class Optimization:
             sub_rep_2d = sub_rep.reshape((1, self.rep_model.wvecDim))
             td_2d = td.reshape((1, self.outputDim))
 
-            
+            """"
             norm = -1.0/self.outputDim
             sim_grad = norm * targetData[i]
             sim_grad[sim_grad == -0.] = 0 
@@ -210,10 +215,9 @@ class Optimization:
                 deltas_hidden *= derivative_sigmoid(act)
             else:
                 raise "incorrect activation function"
-
-
-            #delta_mul = np.dot(self.classifier.params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim) #(n_hidden)
-            #delta_sub = np.dot(self.classifier.params[1].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim)
+            delta_mul = np.dot(self.classifier.params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim) #(n_hidden)
+            delta_sub = np.dot(self.classifier.params[1].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim)
+            """
 
             delta_mul = self.delta_hw1(mul_rep_2d, sub_rep_2d, td_2d)  
             delta_sub = self.delta_hw2(mul_rep_2d, sub_rep_2d, td_2d)
@@ -221,18 +225,16 @@ class Optimization:
             delta_rep1 = sub_rep * delta_mul
             delta_rep2 = mul_rep * delta_sub
 
-        
             self.rep_model.backProp(item[0], delta_rep1)
             self.rep_model.backProp(item[1], delta_rep2)
 
-
-        return mul_reps, sub_reps, targetData
+        return self.rep_model.dstack, mul_reps, sub_reps, targetData
         
     def adagrad_mlp(self, grad):
 
         self.gradt_mlp = [gt+g**2 for gt,g in zip(self.gradt_mlp, grad)]
 
-        updates =  [g*(1./T.sqrt(gt)) for gt,g in zip(self.gradt_mlp,grad)]
+        updates =  [g*(1./T.sqrt(gt)) for gt,g in zip(self.gradt_mlp, grad)]
 
         return updates
 
@@ -262,12 +264,15 @@ class Optimization:
         dL = grad[0]
         dLt = self.gradt_rnn[0]
         for j in range(self.rep_model.numWords):
-            dLt[:,j] = dLt[:,j] + dL[:,j]**2
-            dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
+            #dLt[:,j] = dLt[:,j] + dL[:,j]**2
+            #dL[:,j] = dL[:,j] * (1./np.sqrt(dLt[:,j]))
+            dLt[:,j] = dLt[:,j] + dL[j]**2
+            dL[j] = dL[j] * (1./np.sqrt(dLt[:,j]))
 
         # handle dictionary update sparsely
         for j in range(self.rep_model.numWords):
-            self.rep_model.L[:,j] -= self.learning_rate*dL[:,j]
+            #self.rep_model.L[:,j] -= self.learning_rate*dL[:,j]
+            self.rep_model.L[:,j] -= self.learning_rate*dL[j]
 
     def adadelta_rnn(self, grad, eps=1e-6, rho=0.95):
 
@@ -284,14 +289,18 @@ class Optimization:
         dLt_2 = self.gradt_rnn_2[0]
 
         for j in range(self.rep_model.numWords):
-            dLt_1[:,j] = rho*dLt_1[:,j]+(1.0-rho)*(dL[:,j] ** 2)
-            dL[:,j] = -( np.sqrt(dLt_2[:,j]+eps)/ np.sqrt(dLt_1[:,j]+eps) ) * dL[:,j]
+            #dLt_1[:,j] = rho*dLt_1[:,j]+(1.0-rho)*(dL[:,j] ** 2)
+            #dL[:,j] = -( np.sqrt(dLt_2[:,j]+eps)/ np.sqrt(dLt_1[:,j]+eps) ) * dL[:,j]
+            dLt_1[:,j] = rho*dLt_1[:,j]+(1.0-rho)*(dL[j] ** 2)
+            dL[j] = -( np.sqrt(dLt_2[:,j]+eps)/ np.sqrt(dLt_1[:,j]+eps) ) * dL[j]
 
             #update
-            dLt_2[:,j] = rho*dLt_2[:,j] + (1.0-rho)*(dL[:,j] ** 2)
+            #dLt_2[:,j] = rho*dLt_2[:,j] + (1.0-rho)*(dL[:,j] ** 2)
+            dLt_2[:,j] = rho*dLt_2[:,j] + (1.0-rho)*(dL[j] ** 2)
 
         for j in range(self.rep_model.numWords):
-            self.rep_model.L[:,j] += dL[:,j]
+            #self.rep_model.L[:,j] += dL[:,j]
+            self.rep_model.L[:,j] += dL[j]
 
         #updates.append((param_update_2, rho*param_update_2+(1. - rho)*(dparam ** 2)))
         self.gradt_rnn_2[1:] = [rho*dt + (1.0-rho)*( d** 2) for dt, d in zip(self.gradt_rnn_2[1:], dparam)]
@@ -348,3 +357,11 @@ class Optimization:
                 tree.resetFinished()
 
         return cost/len(trees), pearsonr(corrects,guesses)[0]
+
+    def saveModel(self):
+        with open(self.outputFile, "wb") as f:
+            cPickle.dump(self.rep_model.stack, f, protocol=cPickle.HIGHEST_PROTOCOL)
+            cPickle.dump(self.classifier.params, f)
+
+
+

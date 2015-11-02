@@ -104,8 +104,6 @@ class MLP(object):
 
     def __init__(self, rng, input_1, input_2, n_in, n_hidden, n_out, activation):
 
-        self.numLabels = n_out
-
         if activation == "tanh":
             act_function = T.tanh
         elif activation == "sigmoid":

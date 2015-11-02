@@ -15,7 +15,7 @@ if __name__ == '__main__':
     parser.add_argument("--numProcess",dest="numProcess",type=int,default=None)
     parser.add_argument("--repModel",dest="repModel",type=str,default="lstm")
     parser.add_argument("--debug",dest="debug",type=str,default="False")
-    parser.add_argument("--activation",dest="activation",type=str,default=None)
+    parser.add_argument("--mlpActivation",dest="mlpActivation",type=str,default=None)
     args = parser.parse_args()
 
     if args.debug == "True":
@@ -31,11 +31,11 @@ if __name__ == '__main__':
 
     from optimization import Optimization
      
-    optimizer = Optimization(alpha=args.step, optimizer=args.optimizer)
+    optimizer = Optimization(outputFile=args.outFile, alpha=args.step, optimizer=args.optimizer)
 
-    optimizer.initial_RepModel(tr, args.repModel, args.wvecDim, args.activation)
+    optimizer.initial_RepModel(tr, args.repModel, args.wvecDim)
 
-    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, args.activation)
+    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, args.mlpActivation)
 
 
     best_dev_score  = 0.
@@ -49,6 +49,7 @@ if __name__ == '__main__':
         cost, dev_score = optimizer.predict(devTrees)
         if dev_score > best_dev_score:
             best_dev_score = dev_score
+            #optimizer.saveModel()
             print "iter:%d cost: %f dev_score: %f best_dev_score %f"%(e, cost, dev_score, best_dev_score)
         else:
             print "iter:%d cost: %f dev_score: %f"%(e, cost, dev_score)

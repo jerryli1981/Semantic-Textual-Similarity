@@ -2,11 +2,15 @@ import numpy as np
 
 from utils import *
 
+import collections # for dL
+
 class depTreeLSTMModel:
 
     def __init__(self, wvecDim):
 
         self.wvecDim = wvecDim
+
+        self.defaultVec = lambda : np.zeros((wvecDim,))
 
     def initialParams(self, word2vecs, rng):
 
@@ -74,34 +78,49 @@ class depTreeLSTMModel:
         self.stack = [self.L, self.Wi, self.Ui, self.bi, self.Wf, self.Uf, self.bf,
                               self.Wo, self.Uo, self.bo, self.Wu, self.Uu, self.bu ]
 
-    def initialGrads(self):
 
-        #create with default_factory : defaultVec = lambda : np.zeros((wvecDim,))
-        #make the defaultdict useful for building a dictionary of np array
-        #this is very good to save memory, However, this may not support for multiprocess due to pickle error
 
-        #defaultVec = lambda : np.zeros((wvecDim,))
-        #dL = collections.defaultdict(defaultVec)
-        self.dL = np.zeros((self.wvecDim, self.numWords))
-        self.dWi = np.zeros((self.wvecDim, self.wvecDim))
-        self.dUi = np.zeros((self.wvecDim, self.wvecDim))
-        self.dbi = np.zeros(self.wvecDim)
+        self.dWi = np.empty((self.wvecDim, self.wvecDim))
+        self.dUi = np.empty((self.wvecDim, self.wvecDim))
+        self.dbi = np.empty(self.wvecDim)
 
-        self.dWf = np.zeros((self.wvecDim, self.wvecDim))
-        self.dUf = np.zeros((self.wvecDim, self.wvecDim))
-        self.dbf = np.zeros(self.wvecDim)
+        self.dWf = np.empty((self.wvecDim, self.wvecDim))
+        self.dUf = np.empty((self.wvecDim, self.wvecDim))
+        self.dbf = np.empty(self.wvecDim)
 
-        self.dWo = np.zeros((self.wvecDim, self.wvecDim))
-        self.dUo = np.zeros((self.wvecDim, self.wvecDim))
-        self.dbo = np.zeros(self.wvecDim)
+        self.dWo = np.empty((self.wvecDim, self.wvecDim))
+        self.dUo = np.empty((self.wvecDim, self.wvecDim))
+        self.dbo = np.empty(self.wvecDim)
 
-        self.dWu = np.zeros((self.wvecDim, self.wvecDim))
-        self.dUu = np.zeros((self.wvecDim, self.wvecDim))
-        self.dbu = np.zeros(self.wvecDim)
+        self.dWu = np.empty((self.wvecDim, self.wvecDim))
+        self.dUu = np.empty((self.wvecDim, self.wvecDim))
+        self.dbu = np.empty(self.wvecDim)
+
+
+
+    def clearDerivativeSharedMemory(self):
+
+        self.dWi[:] = 0 
+        self.dUi[:] = 0
+        self.dbi[:] = 0
+
+        self.dWf[:] = 0 
+        self.dUf[:] = 0
+        self.dbf[:] = 0
+
+        self.dWo[:] = 0 
+        self.dUo[:] = 0
+        self.dbo[:] = 0
+
+        self.dWu[:] = 0 
+        self.dUu[:] = 0
+        self.dbu[:] = 0
+
+        self.dL = collections.defaultdict(self.defaultVec)
 
         self.dstack = [self.dL, self.dWi, self.dUi, self.dbi, self.dWf, self.dUf, self.dbf,
                                 self.dWo, self.dUo, self.dbo, self.dWu, self.dUu, self.dbu ]
-        
+
 
     def forwardProp(self, tree):
 
@@ -216,7 +235,8 @@ class depTreeLSTMModel:
 
                 self.dWo += np.outer(delta_o_j, x_j)
                 self.dbo += delta_o_j
-                self.dL[:, curr.index] += np.dot(self.Wo, delta_o_j)
+                #self.dL[:, curr.index] += np.dot(self.Wo, delta_o_j)
+                self.dL[curr.index] += np.dot(self.Wo, delta_o_j)
 
 
                 delta_c_j = curr.o_j * delta_h_j * derivative_tanh(curr.h_j)
@@ -225,14 +245,16 @@ class depTreeLSTMModel:
                 delta_i_j *= derivative_sigmoid(x_j)
                 self.dWi += np.outer(delta_i_j, x_j)
                 self.dbi += delta_i_j
-                self.dL[:, curr.index] += np.dot(self.Wi, delta_i_j)
+                #self.dL[:, curr.index] += np.dot(self.Wi, delta_i_j)
+                self.dL[curr.index] += np.dot(self.Wi, delta_i_j)
 
 
                 delta_u_j = delta_c_j * curr.i_j
                 delta_u_j *= derivative_sigmoid(x_j)
                 self.dWu += np.outer(delta_u_j, x_j)
                 self.dbu += delta_u_j
-                self.dL[:, curr.index] += np.dot(self.Wu, delta_u_j)
+                #self.dL[:, curr.index] += np.dot(self.Wu, delta_u_j)
+                self.dL[curr.index] += np.dot(self.Wu, delta_u_j)
 
 
             else:
@@ -247,7 +269,8 @@ class depTreeLSTMModel:
                 self.dWo += np.outer(delta_o_j_1, x_j)
                 self.dUo += np.outer(delta_o_j_2, curr.h_j_hat)
                 self.dbo += delta_o_j_1
-                self.dL[:, curr.index] += np.dot(self.Wo, delta_o_j_1)
+                #self.dL[:, curr.index] += np.dot(self.Wo, delta_o_j_1)
+                self.dL[curr.index] += np.dot(self.Wo, delta_o_j_1)
 
 
                 delta_c_j = curr.o_j * delta_h_j * derivative_tanh(curr.h_j)
@@ -259,7 +282,8 @@ class depTreeLSTMModel:
                 self.dWi += np.outer(delta_i_j_1, x_j)
                 self.dUi += np.outer(delta_i_j_2, curr.h_j_hat)
                 self.dbi += delta_i_j_1
-                self.dL[:, curr.index] += np.dot(self.Wi, delta_i_j_1)
+                #self.dL[:, curr.index] += np.dot(self.Wi, delta_i_j_1)
+                self.dL[curr.index] += np.dot(self.Wi, delta_i_j_1)
 
 
                 delta_u_j = delta_c_j * curr.i_j
@@ -269,7 +293,8 @@ class depTreeLSTMModel:
                 self.dWu += np.outer(delta_u_j_1, x_j)
                 self.dUu += np.outer(delta_u_j_2, curr.h_j_hat)
                 self.dbu += delta_u_j_1
-                self.dL[:, curr.index] += np.dot(self.Wu, delta_u_j_1)
+                #self.dL[:, curr.index] += np.dot(self.Wu, delta_u_j_1)
+                self.dL[curr.index] += np.dot(self.Wu, delta_u_j_1)
 
                 
 
