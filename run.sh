@@ -9,8 +9,8 @@ set -x
 epochs=1000
 step=0.01
 numLabels=5
-hiddenDim=50
-wvecDim=100
+hiddenDim=150
+wvecDim=300
 miniBatch=200
 model=LSTM
 optimizer=adagrad

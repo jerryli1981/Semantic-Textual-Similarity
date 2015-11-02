@@ -52,6 +52,7 @@ class Optimization:
     def initial_theano_mlp(self, hiddenDim, outputDim, activation, epsilon = 1e-16):
 
         self.outputDim = outputDim
+        self.hiddenDim = hiddenDim
         self.activation = activation
 
         x1_batch = T.fmatrix('x1_batch')  # n * d, the data is presented as one sentence output
@@ -201,7 +202,7 @@ class Optimization:
 
             deltas_hidden = np.dot(self.classifier.params[3].eval(), deltas_softmax)
 
-            act = self.act_function(mul_rep_2d, sub_rep_2d).reshape(50)
+            act = self.act_function(mul_rep_2d, sub_rep_2d).reshape(self.hiddenDim)
 
             if self.activation == "tanh":
                 deltas_hidden *= derivative_tanh(act)
