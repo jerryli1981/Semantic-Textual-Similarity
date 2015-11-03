@@ -53,6 +53,7 @@ class Optimization:
     def initial_theano_mlp(self, hiddenDim, outputDim, activation, epsilon = 1e-16):
 
         self.outputDim = outputDim
+        self.hiddenDim = hiddenDim
         self.activation = activation
 
         x1_batch = T.fmatrix('x1_batch')  # n * d, the data is presented as one sentence output
@@ -62,12 +63,15 @@ class Optimization:
         classifier = MLP(rng=self.rng,input_1=x1_batch, input_2=x2_batch, n_in=self.rep_model.wvecDim,
                                 n_hidden=hiddenDim,n_out=outputDim,activation=activation)
 
+
         L1_reg=0.00
         L2_reg=0.0001 
 
         cost = classifier.kl_divergence(y_batch) + L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
 
         [hw1, hw2, hb, ow, ob] = classifier.params
+
+        self.mlp_params = classifier.params
 
         gparams = [ T.grad(cost, param) for param in classifier.params]
 
@@ -121,7 +125,6 @@ class Optimization:
         #random.shuffle(trainData, lambda: .5)
         # this is important
         random.shuffle(trainData)
-
 
         batches = [trainData[idx : idx + batchSize] for idx in xrange(0, len(trainData), batchSize)]
 
@@ -197,7 +200,7 @@ class Optimization:
             sub_rep_2d = sub_rep.reshape((1, self.rep_model.wvecDim))
             td_2d = td.reshape((1, self.outputDim))
 
-            """"
+            
             norm = -1.0/self.outputDim
             sim_grad = norm * targetData[i]
             sim_grad[sim_grad == -0.] = 0 
@@ -205,7 +208,7 @@ class Optimization:
             pd = self.mlp_forward(mul_rep_2d,sub_rep_2d).reshape(self.outputDim)
             deltas_softmax = sim_grad * derivative_softmax(pd) #(5,)
 
-            deltas_hidden = np.dot(self.classifier.params[3].eval(), deltas_softmax)
+            deltas_hidden = np.dot(self.mlp_params[3].eval(), deltas_softmax)
 
             act = self.act_function(mul_rep_2d, sub_rep_2d).reshape(self.hiddenDim)
 
@@ -215,18 +218,47 @@ class Optimization:
                 deltas_hidden *= derivative_sigmoid(act)
             else:
                 raise "incorrect activation function"
-            delta_mul = np.dot(self.classifier.params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim) #(n_hidden)
-            delta_sub = np.dot(self.classifier.params[1].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim)
-            """
+            delta_mul = np.dot(self.mlp_params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim) #(n_hidden)
+            delta_sub = np.dot(self.mlp_params[1].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim)
 
-            delta_mul = self.delta_hw1(mul_rep_2d, sub_rep_2d, td_2d)  
-            delta_sub = self.delta_hw2(mul_rep_2d, sub_rep_2d, td_2d)
+            
+            #delta_mul = self.delta_hw1(mul_rep_2d, sub_rep_2d, td_2d)  
+            #delta_sub = self.delta_hw2(mul_rep_2d, sub_rep_2d, td_2d)
 
-            delta_rep1 = sub_rep * delta_mul
-            delta_rep2 = mul_rep * delta_sub
+            delta_rep1_mul = second_tree_rep * delta_mul
+            delta_rep2_mul = first_tree_rep * delta_mul
 
-            self.rep_model.backProp(item[0], delta_rep1)
-            self.rep_model.backProp(item[1], delta_rep2)
+            f_s = ((first_tree_rep - second_tree_rep) > 0)
+            s_f = ((second_tree_rep - first_tree_rep) > 0)
+
+            f_s_a = np.zeros(self.rep_model.wvecDim)
+            i =0 
+            for x in np.nditer(f_s):
+                if x:
+                    f_s_a[i] = 1
+                else:
+                    f_s_a[i] = -1
+                i += 1
+
+            delta_rep1_sub = f_s_a * delta_sub
+
+            s_f_a = np.zeros(self.rep_model.wvecDim)
+
+            i =0 
+            for x in np.nditer(s_f):
+                if x:
+                    s_f_a[i] = 1
+                else:
+                    s_f_a[i] = -1
+                i += 1
+
+            delta_rep2_sub = s_f_a * delta_sub
+           
+            self.rep_model.backProp(item[0], delta_rep1_mul)
+            self.rep_model.backProp(item[0], delta_rep1_sub)
+            self.rep_model.backProp(item[1], delta_rep2_mul)
+            self.rep_model.backProp(item[1], delta_rep2_sub)
+
 
         return self.rep_model.dstack, mul_reps, sub_reps, targetData
         
