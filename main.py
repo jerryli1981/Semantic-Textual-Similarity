@@ -33,10 +33,11 @@ if __name__ == '__main__':
      
     optimizer = Optimization(outputFile=args.outFile, alpha=args.step, optimizer=args.optimizer)
 
-    optimizer.initial_RepModel(tr, args.repModel, args.wvecDim)
+    useLearnedModel = True
 
-    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, args.mlpActivation)
+    optimizer.initial_RepModel(tr, args.repModel, args.wvecDim, startFromEariler=useLearnedModel)
 
+    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, args.mlpActivation, startFromEariler=useLearnedModel)
 
     best_dev_score  = 0.
 
@@ -49,7 +50,7 @@ if __name__ == '__main__':
         cost, dev_score = optimizer.predict(devTrees)
         if dev_score > best_dev_score:
             best_dev_score = dev_score
-            #optimizer.saveModel()
+            optimizer.saveModel()
             print "iter:%d cost: %f dev_score: %f best_dev_score %f"%(e, cost, dev_score, best_dev_score)
         else:
             print "iter:%d cost: %f dev_score: %f"%(e, cost, dev_score)

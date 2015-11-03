@@ -5,51 +5,48 @@ from utils import *
 
 class LogisticRegression(object):
 
-    def __init__(self, rng, input, n_in, n_out):
+    def __init__(self, rng, input, n_in, n_out, W=None, b=None):
 
-        W_values = np.asarray(
-            rng.uniform(
-                low=-np.sqrt(6. / (n_in + n_out)),
-                high=np.sqrt(6. / (n_in + n_out)),
-                size=(n_in, n_out)
-            ),
-            dtype=theano.config.floatX
-        )
+        if W is None:
 
-        self.W = theano.shared(value=W_values, name='W', borrow=True)
-
-        """
-        self.W = theano.shared(
-            value=np.zeros(
-                (n_in, n_out),
+            W_values = np.asarray(
+                rng.uniform(
+                    low=-np.sqrt(6. / (n_in + n_out)),
+                    high=np.sqrt(6. / (n_in + n_out)),
+                    size=(n_in, n_out)
+                ),
                 dtype=theano.config.floatX
-            ),
-            name='W',
-            borrow=True
-        )
-        """
+            )
 
-        # initialize the biases b as a vector of n_out 0s
-        self.b = theano.shared(
-            value=np.zeros(
-                (n_out,),
-                dtype=theano.config.floatX
-            ),
-            name='b',
-            borrow=True
-        )
-        
+            W = theano.shared(value=W_values, name='W', borrow=True)
+        else:
+            W = theano.shared(value=W, name='W', borrow=True)
+
+
+        if b is None:
+            b = theano.shared(
+                value=np.zeros(
+                    (n_out,),
+                    dtype=theano.config.floatX
+                ),
+                name='b',
+                borrow=True
+            )
+        else:
+            b = theano.shared(value=b, name='b', borrow=True)
+            
+        self.W = W
+        self.b = b
 
         self.p_y_given_x = T.nnet.softmax(T.dot(input, self.W) + self.b)
 
         self.params = [self.W, self.b]
 
-        # keep track of model input
-        self.input = input
                 
     def kl_divergence(self, y):
 
         return T.sum(y * (T.log(y) - T.log(self.p_y_given_x))) / y.shape[0]
+
 
 class HiddenLayer(object):
     def __init__(self, rng, input_1, input_2, n_in, n_out, W_1=None, W_2=None, b=None,
@@ -68,6 +65,8 @@ class HiddenLayer(object):
                 W_1_values *= 4
 
             W_1 = theano.shared(value=W_1_values, name='W_1', borrow=True)
+        else:
+            W_1 = theano.shared(value=W_1, name='W_1', borrow=True)
 
         if W_2 is None:
             W_2_values = np.asarray(
@@ -82,11 +81,15 @@ class HiddenLayer(object):
                 W_2_values *= 4
 
             W_2 = theano.shared(value=W_2_values, name='W_2', borrow=True)
+        else:
+            W_2 = theano.shared(value=W_2, name='W_2', borrow=True)
 
 
         if b is None:
             b_values = np.zeros((n_out,), dtype=theano.config.floatX)
             b = theano.shared(value=b_values, name='b', borrow=True)
+        else:
+            b = theano.shared(value=b, name='b', borrow=True)
 
         self.W_1 = W_1
         self.W_2 = W_2
@@ -96,13 +99,14 @@ class HiddenLayer(object):
 
         self.output = activation(lin_output)
 
-        # parameters of the model
         self.params = [self.W_1, self.W_2, self.b]
 
 
 class MLP(object):
 
-    def __init__(self, rng, input_1, input_2, n_in, n_hidden, n_out, activation):
+    def __init__(self, rng, input_1, input_2, n_in, n_hidden, n_out, activation, 
+                    hw1=None, hw2=None, hb=None, ow=None, ob=None):
+
 
         if activation == "tanh":
             act_function = T.tanh
@@ -115,7 +119,10 @@ class MLP(object):
             input_2=input_2,
             n_in=n_in,
             n_out=n_hidden,
-            activation=act_function
+            activation=act_function,
+            W_1=hw1,
+            W_2=hw2,
+            b=hb
         )
 
         # The logistic regression layer gets as input the hidden units
@@ -124,7 +131,9 @@ class MLP(object):
             rng=rng,
             input=self.hiddenLayer.output,
             n_in=n_hidden,
-            n_out=n_out
+            n_out=n_out,
+            W=ow,
+            b=ob
         )
 
         self.L1 = (
@@ -137,13 +146,12 @@ class MLP(object):
             + (self.logRegressionLayer.W ** 2).sum()
         )
 
-        self.params = self.hiddenLayer.params + self.logRegressionLayer.params
 
         self.kl_divergence = self.logRegressionLayer.kl_divergence
 
         self.output = self.logRegressionLayer.p_y_given_x
 
-
+      
 class my_mlp(object):
 
     def __init__(self, rng, n_in, n_hidden, n_out):

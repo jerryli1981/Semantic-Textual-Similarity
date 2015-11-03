@@ -27,7 +27,7 @@ class Optimization:
         self.outputFile = outputFile
         print "Using",self.optimizer
 
-    def initial_RepModel(self, dep_tree, model, wvecDim, epsilon = 1e-16):
+    def initial_RepModel(self, dep_tree, model, wvecDim, epsilon = 1e-16, startFromEariler=False):
 
         relNum = len(dep_tree.loadRelMap())
 
@@ -40,6 +40,11 @@ class Optimization:
 
         self.rep_model.initialParams(word2vecs, rng=self.rng)
 
+        if startFromEariler:
+            with open(self.outputFile, "rb") as f:
+                self.rep_model.stack = cPickle.load(f)
+                _ = cPickle.load(f)
+
         if self.optimizer == 'adagrad':
 
             self.gradt_rnn = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
@@ -50,7 +55,7 @@ class Optimization:
             self.gradt_rnn_2 = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
 
         
-    def initial_theano_mlp(self, hiddenDim, outputDim, activation, epsilon = 1e-16):
+    def initial_theano_mlp(self, hiddenDim, outputDim, activation, epsilon = 1e-16, startFromEariler=False):
 
         self.outputDim = outputDim
         self.hiddenDim = hiddenDim
@@ -60,47 +65,58 @@ class Optimization:
         x2_batch = T.fmatrix('x2_batch')  # n * d, the data is presented as one sentence output
         y_batch = T.fmatrix('y_batch')  # n * d, the target distribution\
 
-        classifier = MLP(rng=self.rng,input_1=x1_batch, input_2=x2_batch, n_in=self.rep_model.wvecDim,
+        self.classifier = MLP(rng=self.rng,input_1=x1_batch, input_2=x2_batch, n_in=self.rep_model.wvecDim,
                                 n_hidden=hiddenDim,n_out=outputDim,activation=activation)
+
+        if startFromEariler:
+            with open(self.outputFile, "rb") as f:
+                _ = cPickle.load(f)
+                hw1, hw2, hb = cPickle.load(f)
+                ow, ob = cPickle.load(f)
+
+            self.classifier = MLP(rng=self.rng,input_1=x1_batch, input_2=x2_batch, n_in=self.rep_model.wvecDim,
+                                n_hidden=hiddenDim,n_out=outputDim,activation=activation, 
+                                hw1=hw1, hw2=hw2, hb=hb, ow=ow, ob=ob)
 
 
         L1_reg=0.00
         L2_reg=0.0001 
 
-        cost = classifier.kl_divergence(y_batch) + L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
+        cost = self.classifier.kl_divergence(y_batch) + L1_reg * self.classifier.L1 + L2_reg * self.classifier.L2_sqr
 
-        [hw1, hw2, hb, ow, ob] = classifier.params
+        [hw1, hw2, hb, ow, ob] = self.classifier.hiddenLayer.params + self.classifier.logRegressionLayer.params
 
-        self.mlp_params = classifier.params
+        self.classifier.params = self.classifier.hiddenLayer.params + self.classifier.logRegressionLayer.params
 
-        gparams = [ T.grad(cost, param) for param in classifier.params]
+        gparams = [ T.grad(cost, param) for param in self.classifier.params]
 
         self.delta_hw1 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw1, T.grad(cost,hb)), allow_input_downcast=True)
         self.delta_hw2 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw2, T.grad(cost,hb)), allow_input_downcast=True)
         self.delta_ob = theano.function([x1_batch,x2_batch,y_batch], T.grad(cost,ob), allow_input_downcast=True)
 
-        act = classifier.hiddenLayer.output
+        act = self.classifier.hiddenLayer.output
         self.act_function = theano.function([x1_batch,x2_batch], act, allow_input_downcast=True)
 
         update_sdg = [
                 (param, param - self.learning_rate * gparam)
-                for param, gparam in zip(classifier.params, gparams)
+                for param, gparam in zip(self.classifier.params, gparams)
         ]
 
         self.update_params_sdg = theano.function(inputs=[x1_batch, x2_batch, y_batch], outputs=cost,
                                 updates=update_sdg, allow_input_downcast=True)
 
 
-        self.gradt_mlp = [epsilon + T.zeros(W.shape) for W in classifier.params]
-        self.gradt_mlp_1 = [epsilon + T.zeros(W.shape) for W in classifier.params]
-        self.gradt_mlp_2 = [epsilon + T.zeros(W.shape) for W in classifier.params]
+        
+        self.gradt_mlp = [epsilon + T.zeros(W.shape) for W in self.classifier.params]
+        self.gradt_mlp_1 = [epsilon + T.zeros(W.shape) for W in self.classifier.params]
+        self.gradt_mlp_2 = [epsilon + T.zeros(W.shape) for W in self.classifier.params]
 
 
         grad_updates_adagrad = self.adagrad_mlp(gparams)
 
         update_adagrad = [
                 (param, param - self.learning_rate * gparam)
-                for param, gparam in zip(classifier.params, grad_updates_adagrad)
+                for param, gparam in zip(self.classifier.params, grad_updates_adagrad)
         ]
 
         self.update_params_adagrad = theano.function(inputs=[x1_batch, x2_batch,y_batch], outputs=cost,
@@ -110,15 +126,19 @@ class Optimization:
 
         update_adadelta = [
                 (param, param + gparam)
-                for param, gparam in zip(classifier.params, grad_updates_adadelta)
+                for param, gparam in zip(self.classifier.params, grad_updates_adadelta)
         ]
 
         self.update_params_adadelta = theano.function(inputs=[x1_batch, x2_batch,y_batch], outputs=cost,
                                 updates=update_adadelta, allow_input_downcast=True)
 
-        #for predict
-        self.mlp_forward = theano.function([x1_batch,x2_batch], classifier.output, allow_input_downcast=True)
 
+        #for predict
+        self.mlp_forward = theano.function([x1_batch,x2_batch], self.classifier.output, allow_input_downcast=True)
+
+
+
+        
     def train_with_theano_mlp(self, trainData, batchSize):
 
         # to compare between different setttings when debugging, but when real training, need remove lambda
@@ -208,7 +228,7 @@ class Optimization:
             pd = self.mlp_forward(mul_rep_2d,sub_rep_2d).reshape(self.outputDim)
             deltas_softmax = sim_grad * derivative_softmax(pd) #(5,)
 
-            deltas_hidden = np.dot(self.mlp_params[3].eval(), deltas_softmax)
+            deltas_hidden = np.dot(self.classifier.params[3].eval(), deltas_softmax)
 
             act = self.act_function(mul_rep_2d, sub_rep_2d).reshape(self.hiddenDim)
 
@@ -218,8 +238,8 @@ class Optimization:
                 deltas_hidden *= derivative_sigmoid(act)
             else:
                 raise "incorrect activation function"
-            delta_mul = np.dot(self.mlp_params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim) #(n_hidden)
-            delta_sub = np.dot(self.mlp_params[1].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim)
+            delta_mul = np.dot(self.classifier.params[0].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim) #(n_hidden)
+            delta_sub = np.dot(self.classifier.params[1].eval(), deltas_hidden.T).reshape(self.rep_model.wvecDim)
 
             
             #delta_mul = self.delta_hw1(mul_rep_2d, sub_rep_2d, td_2d)  
@@ -393,7 +413,10 @@ class Optimization:
     def saveModel(self):
         with open(self.outputFile, "wb") as f:
             cPickle.dump(self.rep_model.stack, f, protocol=cPickle.HIGHEST_PROTOCOL)
-            cPickle.dump(self.classifier.params, f)
+            cPickle.dump([self.classifier.hiddenLayer.W_1.eval(), self.classifier.hiddenLayer.W_2.eval(),
+                        self.classifier.hiddenLayer.b.eval()], f, protocol=cPickle.HIGHEST_PROTOCOL)
+            cPickle.dump([self.classifier.logRegressionLayer.W.eval(), self.classifier.logRegressionLayer.b.eval()],
+                         f, protocol=cPickle.HIGHEST_PROTOCOL)
 
 
 
