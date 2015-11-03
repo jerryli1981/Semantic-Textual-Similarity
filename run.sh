@@ -16,10 +16,11 @@ model=LSTM
 optimizer=adagrad
 mlpActivation=tanh #current only accept sigmoid and tanh
 debug=False
+useLearnedModel=False
 
 outFile="models/${model}_wvecDim_${wvecDim}_step_${step}_optimizer_${optimizer}.bin"
 
-python -u main.py --debug $debug --mlpActivation $mlpActivation --step $step --repModel $model \
+python -u main.py --debug $debug --useLearnedModel $useLearnedModel --mlpActivation $mlpActivation --step $step --repModel $model \
 				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs --outFile $outFile\
                   				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
 

@@ -15,6 +15,7 @@ if __name__ == '__main__':
     parser.add_argument("--numProcess",dest="numProcess",type=int,default=None)
     parser.add_argument("--repModel",dest="repModel",type=str,default="lstm")
     parser.add_argument("--debug",dest="debug",type=str,default="False")
+    parser.add_argument("--useLearnedModel",dest="useLearnedModel",type=str,default="False")
     parser.add_argument("--mlpActivation",dest="mlpActivation",type=str,default=None)
     args = parser.parse_args()
 
@@ -33,11 +34,14 @@ if __name__ == '__main__':
      
     optimizer = Optimization(outputFile=args.outFile, alpha=args.step, optimizer=args.optimizer)
 
-    useLearnedModel = True
+    if args.useLearnedModel=="True":
+        startFromEariler = True
+    else:
+        startFromEariler = False
 
-    optimizer.initial_RepModel(tr, args.repModel, args.wvecDim, startFromEariler=useLearnedModel)
+    optimizer.initial_RepModel(tr, args.repModel, args.wvecDim, startFromEariler=startFromEariler)
 
-    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, args.mlpActivation, startFromEariler=useLearnedModel)
+    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, args.mlpActivation, startFromEariler=startFromEariler)
 
     best_dev_score  = 0.
 
