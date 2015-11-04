@@ -76,9 +76,9 @@ def build_training_data_sts():
     with open("sts_datasets","wb") as f:
         cPickle.dump(split,f)
 
-def build_training_data_sick():
+def build_datasets_sick():
     parser = Parser() 
-    folders = ['train', 'dev']
+    folders = ['train', 'dev', 'test']
     
     for folder in folders:
         index = 0
