@@ -126,9 +126,4 @@ def build_datasets_sick():
             cPickle.dump(dataset,f)
 
 if __name__ == "__main__":
-    _debug_ = False
-    if _debug_:
-        import pdb
-        pdb.set_trace()
-
-    build_training_data_sick()
+    build_datasets_sick()
