@@ -5,10 +5,11 @@ from utils import *
 
 class LogisticRegression(object):
 
-    def __init__(self, input, n_in, n_out):
+    def __init__(self, rng, input, n_in, n_out):
 
         self.inp = input
 
+        """
         self.W = theano.shared(
             value=np.zeros(
                 (n_in, n_out),
@@ -17,6 +18,20 @@ class LogisticRegression(object):
             name='W',
             borrow=True
         )
+        """
+
+        W_values = np.asarray(
+                rng.uniform(
+                    low=-np.sqrt(6. / (n_in + n_out)),
+                    high=np.sqrt(6. / (n_in + n_out)),
+                    size=(n_in, n_out)
+                ),
+                dtype=theano.config.floatX
+            )
+
+        self.W = theano.shared(value=W_values, name='W', borrow=True)
+
+
         # initialize the baises b as a vector of n_out 0s
         self.b = theano.shared(
             value=np.zeros(
@@ -27,7 +42,6 @@ class LogisticRegression(object):
             borrow=True
         )
 
-            
         self.p_y_given_x = T.nnet.softmax(T.dot(input, self.W) + self.b)
 
         self.params = [self.W, self.b]
@@ -102,6 +116,7 @@ class MLP(object):
 
 
         self.logRegressionLayer = LogisticRegression(
+            rng=rng,
             input=self.hiddenLayer.output,
             n_in=n_hidden,
             n_out=n_out,
