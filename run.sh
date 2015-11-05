@@ -10,12 +10,12 @@ epochs=1000
 step=0.01
 numLabels=5
 hiddenDim=50
-wvecDim=100
+wvecDim=200
 miniBatch=200
-model=RNN
+model=LSTM
 optimizer=adagrad
 debug=False
-useLearnedModel=True
+useLearnedModel=False
 
 outFile="models/${model}_wvecDim_${wvecDim}_step_${step}_optimizer_${optimizer}.bin"
 

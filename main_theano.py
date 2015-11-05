@@ -28,25 +28,15 @@ if __name__ == '__main__':
     import dependency_tree as tr     
     trainTrees = tr.loadTrees("train")
     devTrees = tr.loadTrees("dev")
+    testTrees = tr.loadTrees("test")
     print "train number %d"%len(trainTrees)
     print "dev number %d"%len(devTrees)
-
-    from optimization import Optimization
-
-
-    rng = np.random.RandomState(1234)
-
-    rep_model = initial_RepModel(rng, tr, args.repModel, args.wvecDim, args.outFile, args.useLearnedModel)
-
-    rnn_optimizer = RNN_Optimization(rep_model, alpha=args.step, optimizer=args.optimizer)
-
-    print "training model"
-    train_with_theano_mlp(rng, rnn_optimizer, rep_model, trainTrees, devTrees, args.minibatch, args.epochs,
-     args.hiddenDim, args.outputDim, args.step, args.optimizer, args.useLearnedModel, args.outFile, action="test")
-
-
-
+    print "test number %d"%len(testTrees)
     
+    train(trainTrees, devTrees, args)
+
+    #predict(testTrees, args)
+
 
     
 
