@@ -9,11 +9,60 @@ from lstm import depTreeLSTMModel
 from mlp import MLP
 
 import theano.tensor as T
+
+from collections import OrderedDict
 import theano
 
 import cPickle
 
 from utils import *
+
+def sgd_updates_adadelta(params,cost,rho=0.95,epsilon=1e-6,norm_lim=9):
+    """
+    adadelta update rule, mostly from
+    https://groups.google.com/forum/#!topic/pylearn-dev/3QbKtCumAW4 (for Adadelta)
+    """
+    updates = OrderedDict({})
+    exp_sqr_grads = OrderedDict({})
+    exp_sqr_ups = OrderedDict({})
+    gparams = []
+    for param in params:
+        empty = np.zeros_like(param.get_value(), dtype=theano.config.floatX)
+        exp_sqr_grads[param] = theano.shared(value=empty,name="exp_grad_%s" % param.name)
+        gp = T.grad(cost, param)
+        exp_sqr_ups[param] = theano.shared(value=empty, name="exp_grad_%s" % param.name)
+        gparams.append(gp)
+    for param, gp in zip(params, gparams):
+        exp_sg = exp_sqr_grads[param]
+        exp_su = exp_sqr_ups[param]
+        up_exp_sg = rho * exp_sg + (1 - rho) * T.sqr(gp)
+        updates[exp_sg] = up_exp_sg
+        step =  -(T.sqrt(exp_su + epsilon) / T.sqrt(up_exp_sg + epsilon)) * gp
+        updates[exp_su] = rho * exp_su + (1 - rho) * T.sqr(step)
+        stepped_param = param + step
+        updates[param] = stepped_param      
+    return updates 
+
+def sgd_updates_adagrad(params,cost):
+    
+    updates = OrderedDict({})
+    exp_sqr_grads = OrderedDict({})
+    gparams = []
+    for param in params:
+        empty = np.zeros_like(param.get_value(), dtype=theano.config.floatX)
+        exp_sqr_grads[param] = theano.shared(value=empty,name="exp_grad_%s" % param.name)
+        gp = T.grad(cost, param)
+        gparams.append(gp)
+
+    for param, gp in zip(params, gparams):
+        exp_sg = exp_sqr_grads[param]
+        up_exp_sg = exp_sg + T.sqr(gp)
+        updates[exp_sg] = up_exp_sg
+        step =  gp * ( 1./T.sqrt(up_exp_sg) )
+        stepped_param = param - step
+        updates[param] = stepped_param       
+    return updates 
+
 
 def train(train_data, dev_data, args, validate=True):
 
@@ -52,7 +101,7 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
 
 
     if args.useLearnedModel == "True":
-        with open(outputFile, "rb") as f:
+        with open(args.outFile, "rb") as f:
             rep_model.stack = cPickle.load(f)
             classifier.__setstate__(cPickle.load(f))            
 
@@ -81,6 +130,7 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
                             updates=update_sdg, allow_input_downcast=True)
 
 
+    """
     gradt_mlp = [epsilon+T.zeros(W.shape) for W in classifier.params]
     gradt_mlp = [gt+g**2 for gt,g in zip(gradt_mlp, gparams)]
 
@@ -90,10 +140,18 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
             (param, param - learning_rate * gparam)
             for param, gparam in zip(classifier.params, norm_grad_adagrad)
     ]
+    """
+
+    grad_updates_adagrad = sgd_updates_adagrad(classifier.params, cost)
 
     update_params_adagrad = theano.function(inputs=[x1_batch, x2_batch,y_batch], outputs=cost,
-                            updates=update_adagrad, allow_input_downcast=True)
+                            updates=grad_updates_adagrad, allow_input_downcast=True)
 
+
+
+    grad_updates_adadelta = sgd_updates_adadelta(classifier.params, cost)
+
+    """
 
     gradt_mlp_1 = [epsilon + T.zeros(W.shape) for W in classifier.params]
     gradt_mlp_2 = [epsilon + T.zeros(W.shape) for W in classifier.params]
@@ -113,9 +171,9 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
             (param, param + gparam)
             for param, gparam in zip(classifier.params, norm_grad_adadelta)
     ]
-
+    """
     update_params_adadelta = theano.function(inputs=[x1_batch, x2_batch,y_batch], outputs=cost,
-                            updates=update_adadelta, allow_input_downcast=True)
+                            updates=grad_updates_adadelta, allow_input_downcast=True)
 
     #for predict
     mlp_forward = theano.function([x1_batch,x2_batch], classifier.output, allow_input_downcast=True)
@@ -240,7 +298,7 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
                     # handle dictionary update sparsely
                     dL = update[0]
                     for j in range(rep_model.numWords):
-                        rep_model.L[:,j] -= learning_rate*dL[:,j]
+                        rep_model.L[:,j] -= learning_rate*dL[j]
 
                 elif args.optimizer == 'adagrad':
 
