@@ -108,15 +108,14 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
     L1_reg=0.00
     L2_reg=0.0001 
 
-    cost = classifier.kl_divergence(y_batch) + L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
+    cost = T.mean(classifier.kl_divergence(y_batch)) + L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
 
     gparams = [ T.grad(cost, param) for param in classifier.params]
 
     [hw1, hw2, hb, ow, ob] = classifier.params
 
-    delta_hw1 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw1, T.grad(cost,hb)), allow_input_downcast=True)
-    delta_hw2 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw2, T.grad(cost,hb)), allow_input_downcast=True)
-    delta_ob = theano.function([x1_batch,x2_batch,y_batch], T.grad(cost,ob), allow_input_downcast=True)
+    delta_x1 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw1, T.grad(cost,hb)), allow_input_downcast=True)
+    delta_x2 = theano.function([x1_batch,x2_batch,y_batch], T.dot(hw2, T.grad(cost,hb)), allow_input_downcast=True)
 
     act_function = theano.function([x1_batch,x2_batch], classifier.hiddenLayer.output, allow_input_downcast=True)
 
@@ -191,6 +190,10 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
             # this is important
             random.shuffle(trainData)
 
+            input_reps_first_train = np.zeros((len(trainData), rep_model.wvecDim))
+            input_reps_second_train = np.zeros((len(trainData), rep_model.wvecDim))
+            outputs_train = np.zeros((len(trainData), args.outputDim))
+
             batches = [trainData[idx : idx + args.minibatch] for idx in xrange(0, len(trainData), args.minibatch)]
 
             for index, batchData in enumerate(batches):
@@ -213,6 +216,7 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
                 targetData = targetData[:, 1:]
 
                 mul_reps = np.zeros((len(batchData), rep_model.wvecDim))
+
                 sub_reps = np.zeros((len(batchData), rep_model.wvecDim))
 
                 for i, (score, item) in enumerate(batchData): 
@@ -225,6 +229,10 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
                     mul_rep = first_tree_rep * second_tree_rep
                     sub_rep = np.abs(first_tree_rep-second_tree_rep)
 
+                    input_reps_first_train[i + index*args.minibatch, :] = first_tree_rep
+                    input_reps_second_train[i + index*args.minibatch, :] = second_tree_rep
+                    outputs_train[i + index*args.minibatch, :] = td
+
                     mul_reps[i, :] = mul_rep
                     sub_reps[i, :] = sub_rep
 
@@ -232,7 +240,7 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
                     sub_rep_2d = sub_rep.reshape((1, rep_model.wvecDim))
                     td_2d = td.reshape((1, args.outputDim))
 
-                    
+                    """"
                     norm = -1.0/args.outputDim
                     sim_grad = norm * targetData[i]
                     sim_grad[sim_grad == -0.] = 0 
@@ -248,10 +256,10 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
 
                     delta_mul = np.dot(classifier.params[0].get_value(), deltas_hidden.T).reshape(rep_model.wvecDim) #(n_hidden)
                     delta_sub = np.dot(classifier.params[1].get_value(), deltas_hidden.T).reshape(rep_model.wvecDim)
-
+                    """
                     
-                    #delta_mul = self.delta_hw1(mul_rep_2d, sub_rep_2d, td_2d)  
-                    #delta_sub = self.delta_hw2(mul_rep_2d, sub_rep_2d, td_2d)
+                    delta_mul = delta_x1(mul_rep_2d, sub_rep_2d, td_2d)  
+                    delta_sub = delta_x2(mul_rep_2d, sub_rep_2d, td_2d)
 
                     delta_rep1_mul = second_tree_rep * delta_mul
                     delta_rep2_mul = first_tree_rep * delta_mul
@@ -317,6 +325,10 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
 
             if validate:
 
+                input_reps_first_test = np.zeros((len(devData), rep_model.wvecDim))
+                input_reps_second_test = np.zeros((len(devData), rep_model.wvecDim))
+                outputs_test = np.zeros((len(devData), args.outputDim))
+
                 targets = np.zeros((len(devData), args.outputDim+1))
       
                 for i, (score, item) in enumerate(devData):
@@ -349,6 +361,10 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
                     mul_rep = first_tree_rep * second_tree_rep
                     sub_rep = np.abs(first_tree_rep-second_tree_rep)
 
+                    input_reps_first_test[i, :] = first_tree_rep
+                    input_reps_second_test[i, :] = second_tree_rep
+                    outputs_test[i, :] = td
+
                     mul_reps[i, :] = mul_rep
                     sub_reps[i, :] = sub_rep
 
@@ -371,6 +387,11 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
                 if dev_score > best_dev_score:
                     best_dev_score = dev_score
                     print "iter:%d dev cost: %f dev_score: %f best_dev_score %f"%(epoch, cost, dev_score, best_dev_score)
+                    
+                    with open("data_keras", "wb") as f:
+                        cPickle.dump([input_reps_first_train, input_reps_second_train, outputs_train], f, protocol=cPickle.HIGHEST_PROTOCOL)
+                        cPickle.dump([input_reps_first_test, input_reps_second_test, outputs_test], f, protocol=cPickle.HIGHEST_PROTOCOL)
+    
                 else:
                     print "iter:%d dev cost: %f dev_score: %f"%(epoch, cost, dev_score)
 

@@ -1,4 +1,4 @@
-from Theano import *
+import rnn_mlp_theano
 
 if __name__ == '__main__':
     
@@ -33,7 +33,7 @@ if __name__ == '__main__':
     print "dev number %d"%len(devTrees)
     print "test number %d"%len(testTrees)
     
-    train(trainTrees, devTrees, args)
+    rnn_mlp_theano.train(trainTrees, devTrees, args)
 
     #predict(testTrees, args)
 

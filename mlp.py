@@ -49,7 +49,8 @@ class LogisticRegression(object):
                 
     def kl_divergence(self, y):
 
-        return T.sum(y * (T.log(y) - T.log(self.p_y_given_x))) / y.shape[0]
+        #return T.sum(y * (T.log(y) - T.log(self.p_y_given_x))) / y.shape[0]
+        return T.nnet.categorical_crossentropy(self.p_y_given_x, y)
 
 
 class HiddenLayer(object):
