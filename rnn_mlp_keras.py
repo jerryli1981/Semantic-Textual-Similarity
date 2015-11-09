@@ -112,7 +112,7 @@ if __name__ == '__main__':
 
     sub_layer = Sequential()
     sub_layer.add(Merge([first_rep_layer, second_rep_layer], mode='abs_sub'))
-    mul_layer.add(Dense(args.hiddenDim, input_shape=(args.wvecDim,)))
+    sub_layer.add(Dense(args.hiddenDim, input_shape=(args.wvecDim,)))
 
     model = Sequential()
     model.add(Merge([mul_layer, sub_layer], mode='sum'))
