@@ -93,18 +93,18 @@ if __name__ == '__main__':
     # build the model: 2 stacked LSTM
     print('Build model...')
     first_rep_layer = Sequential()
-    first_rep_layer.add(LSTM(args.wvecDim, return_sequences=False, input_shape=(maxlen_1, args.wvecDim)))
-    #first_model.add(Dropout(0.2))
-    #first_model.add(LSTM(args.wvecDim, return_sequences=False))
-    #first_model.add(Dropout(0.2))
-    #first_model.add(Dense(args.wvecDim, input_shape=(args.wvecDim,)))
+    first_rep_layer.add(LSTM(args.wvecDim, return_sequences=True, input_shape=(maxlen_1, args.wvecDim)))
+    first_rep_layer.add(Dropout(0.2))
+    first_rep_layer.add(LSTM(args.wvecDim, return_sequences=False))
+    #first_rep_layer.add(Dropout(0.2))
+    #first_rep_layer.add(Dense(args.wvecDim, input_shape=(maxlen_1, args.wvecDim)))
 
     second_rep_layer = Sequential()
-    second_rep_layer.add(LSTM(args.wvecDim, return_sequences=False, input_shape=(maxlen_2, args.wvecDim)))
-    #second_model.add(Dropout(0.2))
-    #second_model.add(LSTM(args.wvecDim, return_sequences=False))
-    #second_model.add(Dropout(0.2))
-    #second_model.add(Dense(args.wvecDim, input_shape=(args.wvecDim,)))
+    second_rep_layer.add(LSTM(args.wvecDim, return_sequences=True, input_shape=(maxlen_2, args.wvecDim)))
+    second_rep_layer.add(Dropout(0.2))
+    second_rep_layer.add(LSTM(args.wvecDim, return_sequences=False))
+    #ssecond_rep_layer.add(Dropout(0.2))
+    #second_rep_layer.add(Dense(args.wvecDim, input_shape=(maxlen_2, args.wvecDim)))
 
     mul_layer = Sequential()
     mul_layer.add(Merge([first_rep_layer, second_rep_layer], mode='mul'))
@@ -116,26 +116,26 @@ if __name__ == '__main__':
 
     model = Sequential()
     model.add(Merge([mul_layer, sub_layer], mode='sum'))
-    model.add(Dense(args.hiddenDim, input_shape=(args.wvecDim,)))
-    model.add(Activation('sigmoid'))
+    model.add(Dense(args.hiddenDim, input_shape=(args.wvecDim,), init='uniform'))
+    model.add(Activation('tanh'))
     #model.add(Dropout(0.2))
     #model.add(Dense(50))
     #model.add(Activation('relu'))
-    #model.add(Dropout(0.2))
-    model.add(Dense(5))
+    model.add(Dropout(0.2))
+    model.add(Dense(5, init='uniform'))
     model.add(Activation('softmax'))
 
     rms = RMSprop()
-    sgd = SGD()
+    sgd = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
     model.compile(loss='categorical_crossentropy', optimizer=sgd)
 
     print "begin to train model"
+    #model.fit([X1_train, X2_train], Y_train, batch_size=args.minibatch, nb_epoch=args.epochs, show_accuracy=True, verbose=2, validation_data=([X1_dev, X2_dev],  Y_dev))
+    model.fit([X1_train, X2_train], Y_train, batch_size=args.minibatch, nb_epoch=args.epochs)
+
     corrects = [] 
     for i, (score, item) in enumerate(devTrees):
         corrects.append(score)
-    #model.fit([X1_train, X2_train], Y_train, batch_size=args.minibatch, nb_epoch=args.epochs, show_accuracy=True, verbose=2, validation_data=([X1_dev, X2_dev],  Y_dev))
-
-    model.fit([X1_train, X2_train], Y_train, batch_size=args.minibatch, nb_epoch=100)
 
     preds = model.predict([X1_dev, X2_dev])
     predictScores = preds.dot(np.array([1,2,3,4,5]))
@@ -153,7 +153,7 @@ if __name__ == '__main__':
             X1_train_batch, X2_train_batch, Y_train_batch, _,_= load_data(batchData, tr, args)
             model.train_on_batch([X1_train_batch, X2_train_batch], Y_train_batch)
 
-        preds = model.predict([X1_dev, X2_dev])
+        preds = model.predict_proba([X1_dev, X2_dev])
         predictScores = preds.dot(np.array([1,2,3,4,5]))
         guesses = predictScores.tolist()
         dev_score = pearsonr(corrects,guesses)[0]
