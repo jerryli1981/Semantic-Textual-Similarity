@@ -135,7 +135,8 @@ if __name__ == '__main__':
         corrects.append(score)
     #model.fit([X1_train, X2_train], Y_train, batch_size=args.minibatch, nb_epoch=args.epochs, show_accuracy=True, verbose=2, validation_data=([X1_dev, X2_dev],  Y_dev))
 
-    #model.fit([X1_train, X2_train], Y_train, batch_size=args.minibatch, nb_epoch=20)
+    model.fit([X1_train, X2_train], Y_train, batch_size=args.minibatch, nb_epoch=20)
+    """
     epoch = 0
     best_dev_score  = 0.
     while (epoch < args.epochs):
@@ -156,5 +157,9 @@ if __name__ == '__main__':
             print "iter:%d dev_score: %f best_dev_score %f"%(epoch, dev_score, best_dev_score)
         else:
             print "iter:%d dev_score: %f"%(epoch, dev_score)
-
+    """
+    preds = model.predict([X1_dev, X2_dev])
+    predictScores = preds.dot(np.array([1,2,3,4,5]))
+    guesses = predictScores.tolist()
+    print pearsonr(corrects,guesses)[0]
     
