@@ -51,7 +51,7 @@ def load_data(data, dep_tree, maxlen, args):
     return X1, X2, Y, scores
 
 
-def build_network(input1_var=None, input2_var=None, maxlen=30, wvecDim = 100, GRAD_CLIP = 10):
+def build_network(input1_var=None, input2_var=None, maxlen=30, wvecDim = 100):
     # This creates an MLP of two hidden layers of 800 units each, followed by
     # a softmax output layer of 10 units. It applies 20% dropout to the input
     # data and 50% dropout to the hidden layers.
@@ -66,26 +66,27 @@ def build_network(input1_var=None, input2_var=None, maxlen=30, wvecDim = 100, GR
     l2_in = lasagne.layers.InputLayer(shape=(None, maxlen, wvecDim),
                                      input_var=input2_var)
 
+    GRAD_CLIP = wvecDim
     l_forward_1 = lasagne.layers.LSTMLayer(
-        l1_in, 50, grad_clipping=GRAD_CLIP,
+        l1_in, wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
-    l_forward_slice_1 = lasagne.layers.SliceLayer(l_forward_1, -1, 1)
+    #l_forward_slice_1 = lasagne.layers.SliceLayer(l_forward_1, -1, 1)
 
     
     l_forward_2 = lasagne.layers.LSTMLayer(
-        l2_in, 50, grad_clipping=GRAD_CLIP,
+        l2_in, wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
-    l_forward_slice_2 = lasagne.layers.SliceLayer(l_forward_2, -1, 1)
+    #l_forward_slice_2 = lasagne.layers.SliceLayer(l_forward_2, -1, 1)
 
 
-    l12_merge = lasagne.layers.ElemwiseMergeLayer([l_forward_slice_1, l_forward_slice_2], merge_function=T.mul)
+    l12_merge = lasagne.layers.ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
 
     # Add a fully-connected layer of 800 units, using the linear rectifier, and
     # initializing weights with Glorot's scheme (which is the default anyway):
     l_hid1 = lasagne.layers.DenseLayer(
-            l12_merge, num_units=50,
+            l12_merge, num_units=100,
             nonlinearity=lasagne.nonlinearities.rectify,
             W=lasagne.init.GlorotUniform())
 
@@ -176,10 +177,9 @@ if __name__ == '__main__':
     # Descent (SGD) with Nesterov momentum, but Lasagne offers plenty more.
     params = lasagne.layers.get_all_params(network, trainable=True)
 
-    """
-    updates = lasagne.updates.nesterov_momentum(
-            loss, params, learning_rate=0.01, momentum=0.9)
-    """
+    #updates = lasagne.updates.nesterov_momentum(
+            #loss, params, learning_rate=0.01, momentum=0.9)
+
     updates = lasagne.updates.adagrad(loss, params, 0.01)
     # Create a loss expression for validation/testing. The crucial difference
     # here is that we do a deterministic forward pass through the network,
@@ -215,7 +215,7 @@ if __name__ == '__main__':
         val_err = 0
         val_batches = 0
         val_pearson = 0
-        for batch in iterate_minibatches(X1_dev, X2_dev, Y_dev, scores_dev, args.minibatch, shuffle=False):
+        for batch in iterate_minibatches(X1_dev, X2_dev, Y_dev, scores_dev, 500, shuffle=False):
             inputs1, inputs2, targets, scores = batch
             err, preds = val_fn(inputs1, inputs2, targets)
             val_err += err
@@ -242,7 +242,7 @@ if __name__ == '__main__':
     test_err = 0
     test_pearson = 0
     test_batches = 0
-    for batch in iterate_minibatches(X1_test, X2_test, Y_test, scores_test, args.minibatch, shuffle=False):
+    for batch in iterate_minibatches(X1_test, X2_test, Y_test, scores_test, 4500, shuffle=False):
         inputs1, inputs2, targets, scores = batch
         err, preds = val_fn(inputs1, inputs2, targets)
         test_err += err
