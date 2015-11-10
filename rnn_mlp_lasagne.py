@@ -66,7 +66,7 @@ def build_network(input1_var=None, input2_var=None, maxlen=30, wvecDim = 100):
     l2_in = lasagne.layers.InputLayer(shape=(None, maxlen, wvecDim),
                                      input_var=input2_var)
 
-    GRAD_CLIP = wvecDim
+    GRAD_CLIP = wvecDim/2
     l_forward_1 = lasagne.layers.LSTMLayer(
         l1_in, wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
@@ -93,10 +93,18 @@ def build_network(input1_var=None, input2_var=None, maxlen=30, wvecDim = 100):
     # We'll now add dropout of 50%:
     l_hid1_drop = lasagne.layers.DropoutLayer(l_hid1, p=0.5)
 
+    # Another 800-unit layer:
+    l_hid2 = lasagne.layers.DenseLayer(
+            l_hid1_drop, num_units=100,
+            nonlinearity=lasagne.nonlinearities.rectify)
+
+    # 50% dropout again:
+    l_hid2_drop = lasagne.layers.DropoutLayer(l_hid2, p=0.5)
+
 
     # Finally, we'll add the fully-connected output layer, of 10 softmax units:
     l_out = lasagne.layers.DenseLayer(
-            l_hid1_drop, num_units=5,
+            l_hid2_drop, num_units=5,
             nonlinearity=lasagne.nonlinearities.softmax)
 
     # Each layer is linked to its incoming layer(s), so we only need to pass
