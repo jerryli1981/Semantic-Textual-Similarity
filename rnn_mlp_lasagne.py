@@ -71,29 +71,27 @@ def build_network(input1_var=None, input2_var=None, maxlen=30, wvecDim = 100):
         l1_in, wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
-    #l_forward_slice_1 = lasagne.layers.SliceLayer(l_forward_1, -1, 1)
+    l_forward_1 = lasagne.layers.FeaturePoolLayer(l_forward_1,pool_size=4, pool_function=T.mean)
+
 
     l_forward_2 = lasagne.layers.LSTMLayer(
         l2_in, wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
-    #l_forward_slice_2 = lasagne.layers.SliceLayer(l_forward_2, -1, 1)
+    l_forward_2 = lasagne.layers.FeaturePoolLayer(l_forward_2,pool_size=4, pool_function=T.mean)
+
 
     l12_mul = lasagne.layers.ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
     l12_sub = lasagne.layers.ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub)
     l12_sub = lasagne.layers.AbsLayer(l12_sub)
 
-
-    l12_mul_Dense = lasagne.layers.DenseLayer(l12_mul, num_units=wvecDim, nonlinearity=None)
+    l12_mul_Dense = lasagne.layers.DenseLayer(l12_mul, num_units=wvecDim, nonlinearity=None, b=None)
 
     l12_sub_Dense = lasagne.layers.DenseLayer(l12_sub, num_units=wvecDim, nonlinearity=None, b=None)
 
     joined = lasagne.layers.ElemwiseSumLayer([l12_mul_Dense, l12_sub_Dense])
     l_hid1 = lasagne.layers.NonlinearityLayer(joined, nonlinearity=lasagne.nonlinearities.sigmoid)
 
-
-    # Add a fully-connected layer of 800 units, using the linear rectifier, and
-    # initializing weights with Glorot's scheme (which is the default anyway):
     """
     l_hid1 = lasagne.layers.DenseLayer(
             joined, num_units=100,
@@ -102,12 +100,12 @@ def build_network(input1_var=None, input2_var=None, maxlen=30, wvecDim = 100):
     """
 
     # We'll now add dropout of 50%:
-    l_hid1_drop = lasagne.layers.DropoutLayer(l_hid1, p=0.5)
+    #l_hid1_drop = lasagne.layers.DropoutLayer(l_hid1, p=0.1)
 
 
     # Finally, we'll add the fully-connected output layer, of 10 softmax units:
     l_out = lasagne.layers.DenseLayer(
-            l_hid1_drop, num_units=5,
+            l_hid1, num_units=5,
             nonlinearity=lasagne.nonlinearities.softmax)
 
     # Each layer is linked to its incoming layer(s), so we only need to pass
