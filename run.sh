@@ -17,13 +17,7 @@ optimizer=adagrad
 debug=False
 useLearnedModel=False
 
-
 outFile="models/${model}_wvecDim_${wvecDim}_step_${step}_optimizer_${optimizer}.bin"
-
-#
-#python -u main.py --debug $debug --useLearnedModel $useLearnedModel --step $step --repModel $model \
-#				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs --outFile $outFile\
-#                  				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
 
 
 if [ "$1" == "keras" ]
