@@ -6,7 +6,8 @@ import time
 import numpy as np
 import theano
 from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Activation, Merge
+from keras.layers.core import Dense, Dropout, Activation, Merge, TimeDistributedMerge, TimeDistributedDense
+from keras.layers.core import Flatten
 from keras.optimizers import SGD, Adam, RMSprop, Adagrad
 from keras.layers.recurrent import LSTM
 
@@ -22,6 +23,7 @@ def load_data(data, dep_tree, maxlen, args):
     Y = np.zeros((len(data), args.outputDim+1), dtype=np.float32)
 
     for i, (score, item) in enumerate(data):
+        first_depTree, second_depTree = item
 
         sim = score
         ceil = np.ceil(sim)
@@ -34,8 +36,8 @@ def load_data(data, dep_tree, maxlen, args):
 
     Y = Y[:, 1:]
 
-    X1 = np.zeros((len(data), maxlen, args.wvecDim), dtype=theano.config.floatX)
-    X2 = np.zeros((len(data), maxlen, args.wvecDim), dtype=theano.config.floatX)
+    X1 = np.zeros((len(data), maxlen, args.wvecDim), dtype=np.float32)
+    X2 = np.zeros((len(data), maxlen, args.wvecDim), dtype=np.float32)
 
     scores = np.zeros((len(data)), dtype=np.float32)
 
@@ -49,7 +51,7 @@ def load_data(data, dep_tree, maxlen, args):
             X2[i, k] =  L[:, Node.index]
 
         scores[i] = score
-
+        
     return X1, X2, Y, scores
 
 def iterate_minibatches(inputs1, inputs2, targets, scores, batchsize, shuffle=False):
@@ -63,6 +65,110 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, batchsize, shuffle=Fa
         else:
             excerpt = slice(start_idx, start_idx + batchsize)
         yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt]
+
+def build_network_0(args, maxlen=30):
+
+    print("Building model 0 and compiling functions...")
+
+    """
+    1. for each sentence, first do LSTM
+    sent_1: (None, maxlen, wvecDim)
+    sent_2: (None, maxlen, wvecDim)
+
+    2. for each lstm output, do feature mean pooling(optional)
+    sent_1: (None, maxlen, wvecDim/4)
+    sent_2: (None, maxlen, wvecDim/4)
+
+    2. Do multiply and abs_sub.
+    mul: (None, maxlen, wvecDim/4)
+    sub: (None, maxlen, wvecDim/4)
+
+    3. hs= sigmoid(W1 * mul + W2* sub)
+
+    4. pred = softmax(W*hs + b)
+
+    """
+
+    l_lstm_1 = Sequential()
+    l_lstm_1.add(LSTM(output_dim=args.wvecDim, 
+        return_sequences=True, input_shape=(maxlen, args.wvecDim)))
+    l_lstm_1.add(Flatten())
+
+    l_lstm_2 = Sequential()
+    l_lstm_2.add(LSTM(output_dim=args.wvecDim, 
+        return_sequences=True, input_shape=(maxlen, args.wvecDim)))
+    l_lstm_2.add(Flatten())
+
+    l_mul = Sequential()
+    l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
+    l_mul.add(Dense(output_dim=args.wvecDim))
+
+    l_sub = Sequential()
+    l_sub.add(Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
+    l_sub.add(Dense(output_dim=args.wvecDim))
+
+    model = Sequential()
+    model.add(Merge([l_mul, l_sub], mode='sum'))
+    model.add(Activation('sigmoid'))
+    model.add(Dense(args.outputDim, init='uniform'))
+    model.add(Activation('softmax'))
+
+    #rms = RMSprop()
+    #sgd = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
+    adagrad = Adagrad(lr=0.01)
+    model.compile(loss='categorical_crossentropy', optimizer=adagrad)
+
+    return model
+
+
+def build_network_1(args, maxlen=30):
+
+    print("Building model 1 and compiling functions...")
+
+    """
+    1. for each sentence, first do LSTM
+    sent_1: (None, maxlen, wvecDim)
+    sent_2: (None, maxlen, wvecDim)
+
+    2. Do multiply and abs_sub, and then mean pooling over maxlen.
+    mul: (None, wvecDim)
+    sub: (None, wvecDim)
+
+    3. hs= sigmoid(W1 * mul + W2* sub)
+
+    4. pred = softmax(W*hs + b)
+
+    """
+    l_lstm_1 = Sequential()
+    l_lstm_1.add(LSTM(output_dim=args.wvecDim, return_sequences=True, input_shape=(maxlen, args.wvecDim)))
+
+    l_lstm_2 = Sequential()
+    l_lstm_2.add(LSTM(output_dim=args.wvecDim, return_sequences=True, input_shape=(maxlen, args.wvecDim)))
+
+
+    l_mul = Sequential()
+    l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
+    l_mul.add(TimeDistributedMerge(mode='ave'))
+    l_mul.add(Dense(args.hiddenDim, input_shape=(args.wvecDim,), init='uniform'))
+
+    l_sub = Sequential()
+    l_sub.add(Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
+    l_sub.add(TimeDistributedMerge(mode='ave'))
+    l_sub.add(Dense(args.hiddenDim, input_shape=(args.wvecDim,), init='uniform'))
+
+    model = Sequential()
+    model.add(Merge([l_mul, l_sub], mode='sum'))
+    model.add(Activation('sigmoid'))
+    model.add(Dense(args.outputDim, init='uniform'))
+    model.add(Activation('softmax'))
+
+    #rms = RMSprop()
+    #sgd = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
+    adagrad = Adagrad(lr=0.01)
+    model.compile(loss='categorical_crossentropy', optimizer=adagrad)
+
+    return model
+
 
 if __name__ == '__main__':
     
@@ -103,49 +209,7 @@ if __name__ == '__main__':
     X1_dev, X2_dev, Y_dev, scores_dev = load_data(devTrees, tr, maxlen, args)
     X1_test, X2_test, Y_test, scores_test = load_data(testTrees, tr, maxlen, args)
 
-    # build the model: 2 stacked LSTM
-    print('Build model...')
-    first_rep_layer = Sequential()
-    first_rep_layer.add(LSTM(args.wvecDim, return_sequences=False, input_shape=(maxlen, args.wvecDim)))
-    #first_rep_layer.add(Dropout(0.2))
-    #first_rep_layer.add(LSTM(args.wvecDim, return_sequences=False))
-    #first_rep_layer.add(Dropout(0.2))
-    #first_rep_layer.add(Dense(args.wvecDim, input_shape=(maxlen_1, args.wvecDim)))
-
-    second_rep_layer = Sequential()
-    second_rep_layer.add(LSTM(args.wvecDim, return_sequences=False, input_shape=(maxlen, args.wvecDim)))
-    #second_rep_layer.add(Dropout(0.2))
-    #second_rep_layer.add(LSTM(args.wvecDim, return_sequences=False))
-    #ssecond_rep_layer.add(Dropout(0.2))
-    #second_rep_layer.add(Dense(args.wvecDim, input_shape=(maxlen_2, args.wvecDim)))
-
-    mul_layer = Sequential()
-    mul_layer.add(Merge([first_rep_layer, second_rep_layer], mode='mul'))
-    mul_layer.add(Dense(args.hiddenDim, input_shape=(args.wvecDim,)))
-
-    sub_layer = Sequential()
-    sub_layer.add(Merge([first_rep_layer, second_rep_layer], mode='abs_sub'))
-    sub_layer.add(Dense(args.hiddenDim, input_shape=(args.wvecDim,)))
-
-    model = Sequential()
-    model.add(Merge([mul_layer, sub_layer], mode='sum'))
-    #model.add(Dense(args.hiddenDim, input_shape=(args.wvecDim,), init='uniform'))
-    model.add(Activation('sigmoid'))
-    #model.add(Dropout(0.2))
-    #model.add(Dense(50))
-    #model.add(Activation('relu'))
-    #model.add(Dropout(0.2))
-    model.add(Dense(5, init='uniform'))
-    model.add(Activation('softmax'))
-
-    #rms = RMSprop()
-    #sgd = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
-    adagrad = Adagrad(lr=0.01)
-    model.compile(loss='categorical_crossentropy', optimizer=adagrad)
-
-
-    #model.fit([X1_train, X2_train], Y_train, batch_size=args.minibatch, nb_epoch=args.epochs, show_accuracy=True, verbose=2, validation_data=([X1_dev, X2_dev],  Y_dev))
-    #model.fit([X1_train, X2_train], Y_train, batch_size=args.minibatch, nb_epoch=args.epochs)
+    model = build_network_0(args, maxlen)
 
     print("Starting training...")
     best_dev_score = .0

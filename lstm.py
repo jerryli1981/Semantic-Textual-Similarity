@@ -231,7 +231,7 @@ class depTreeLSTMModel:
                 delta_h_j = curr.deltas
                 delta_o_j = delta_h_j * np.tanh(curr.c_j)
                 delta_o_j *= derivative_sigmoid(x_j)
-                
+
 
                 self.dWo += np.outer(delta_o_j, x_j)
                 self.dbo += delta_o_j
@@ -240,6 +240,7 @@ class depTreeLSTMModel:
 
 
                 delta_c_j = curr.o_j * delta_h_j * derivative_tanh(curr.h_j)
+
 
                 delta_i_j = delta_c_j * curr.u_j
                 delta_i_j *= derivative_sigmoid(x_j)

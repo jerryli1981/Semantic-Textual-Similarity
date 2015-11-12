@@ -50,66 +50,129 @@ def load_data(data, dep_tree, maxlen, args):
         
     return X1, X2, Y, scores
 
+def build_network_0(args, input1_var=None, input2_var=None, maxlen=30):
 
-def build_network(input1_var=None, input2_var=None, maxlen=30, wvecDim = 100):
-    # This creates an MLP of two hidden layers of 800 units each, followed by
-    # a softmax output layer of 10 units. It applies 20% dropout to the input
-    # data and 50% dropout to the hidden layers.
+    print("Building model 0 and compiling functions...")
 
-    # Input layer, specifying the expected input shape of the network
-    # (unspecified batchsize, 1 channel, 28 rows and 28 columns) and
-    # linking it to the given Theano variable `input_var`, if any:
+    """
+    1. for each sentence, first do LSTM
+    sent_1: (None, maxlen, wvecDim)
+    sent_2: (None, maxlen, wvecDim)
 
-    l1_in = lasagne.layers.InputLayer(shape=(None, maxlen, wvecDim),
+    2. for each lstm output, do feature mean pooling
+    sent_1: (None, maxlen, wvecDim/4)
+    sent_2: (None, maxlen, wvecDim/4)
+
+    2. Do multiply and abs_sub.
+    mul: (None, maxlen, wvecDim/4)
+    sub: (None, maxlen, wvecDim/4)
+
+    3. hs= sigmoid(W1 * mul + W2* sub)
+
+    4. pred = softmax(W*hs + b)
+
+    """
+
+    l1_in = lasagne.layers.InputLayer(shape=(None, maxlen, args.wvecDim),
                                      input_var=input1_var)
 
-    l2_in = lasagne.layers.InputLayer(shape=(None, maxlen, wvecDim),
+    l2_in = lasagne.layers.InputLayer(shape=(None, maxlen, args.wvecDim),
                                      input_var=input2_var)
 
-    GRAD_CLIP = wvecDim/2
+    GRAD_CLIP = args.wvecDim/2
     l_forward_1 = lasagne.layers.LSTMLayer(
-        l1_in, wvecDim, grad_clipping=GRAD_CLIP,
+        l1_in, args.wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
-    l_forward_1 = lasagne.layers.FeaturePoolLayer(l_forward_1,pool_size=4, pool_function=T.mean)
+    #l_forward_1 = lasagne.layers.FeaturePoolLayer(l_forward_1,pool_size=4, pool_function=T.mean)
 
 
     l_forward_2 = lasagne.layers.LSTMLayer(
-        l2_in, wvecDim, grad_clipping=GRAD_CLIP,
+        l2_in, args.wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
-    l_forward_2 = lasagne.layers.FeaturePoolLayer(l_forward_2,pool_size=4, pool_function=T.mean)
+    #l_forward_2 = lasagne.layers.FeaturePoolLayer(l_forward_2,pool_size=4, pool_function=T.mean)
 
 
     l12_mul = lasagne.layers.ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
     l12_sub = lasagne.layers.ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub)
     l12_sub = lasagne.layers.AbsLayer(l12_sub)
 
-    l12_mul_Dense = lasagne.layers.DenseLayer(l12_mul, num_units=wvecDim, nonlinearity=None, b=None)
+    l12_mul_Dense = lasagne.layers.DenseLayer(l12_mul, num_units=args.wvecDim, nonlinearity=None, b=None)
 
-    l12_sub_Dense = lasagne.layers.DenseLayer(l12_sub, num_units=wvecDim, nonlinearity=None, b=None)
+    l12_sub_Dense = lasagne.layers.DenseLayer(l12_sub, num_units=args.wvecDim, nonlinearity=None, b=None)
 
     joined = lasagne.layers.ElemwiseSumLayer([l12_mul_Dense, l12_sub_Dense])
     l_hid1 = lasagne.layers.NonlinearityLayer(joined, nonlinearity=lasagne.nonlinearities.sigmoid)
 
-    """
-    l_hid1 = lasagne.layers.DenseLayer(
-            joined, num_units=100,
-            nonlinearity=lasagne.nonlinearities.rectify,
-            W=lasagne.init.GlorotUniform())
-    """
-
-    # We'll now add dropout of 50%:
-    #l_hid1_drop = lasagne.layers.DropoutLayer(l_hid1, p=0.1)
-
-
-    # Finally, we'll add the fully-connected output layer, of 10 softmax units:
     l_out = lasagne.layers.DenseLayer(
-            l_hid1, num_units=5,
+            l_hid1, num_units=args.outputDim,
             nonlinearity=lasagne.nonlinearities.softmax)
 
-    # Each layer is linked to its incoming layer(s), so we only need to pass
-    # the output layer to give access to a network in Lasagne:
+    return l_out
+
+
+
+def build_network_1(args, input1_var=None, input2_var=None, maxlen=30):
+
+    print("Building model 1 and compiling functions...")
+
+    """
+    1. for each sentence, first do LSTM
+    sent_1: (None, maxlen, wvecDim)
+    sent_2: (None, maxlen, wvecDim)
+
+    2. Do multiply and abs_sub, and then mean pooling over maxlen.
+    mul: (None, wvecDim)
+    sub: (None, wvecDim)
+
+    3. hs= sigmoid(W1 * mul + W2* sub)
+
+    4. pred = softmax(W*hs + b)
+
+    """
+
+    l_in_1 = lasagne.layers.InputLayer(shape=(None, maxlen, args.wvecDim),
+                                     input_var=input1_var)
+
+    l_in_2 = lasagne.layers.InputLayer(shape=(None, maxlen, args.wvecDim),
+                                     input_var=input2_var)
+
+    GRAD_CLIP = args.wvecDim/2
+    l_lstm_1 = lasagne.layers.LSTMLayer(
+        l_in_1, args.wvecDim, grad_clipping=GRAD_CLIP,
+        nonlinearity=lasagne.nonlinearities.tanh)
+
+    #l_forward_1 = lasagne.layers.FeaturePoolLayer(l_forward_1,pool_size=4, pool_function=T.mean)
+
+
+    l_lstm_2 = lasagne.layers.LSTMLayer(
+        l_in_2, args.wvecDim, grad_clipping=GRAD_CLIP,
+        nonlinearity=lasagne.nonlinearities.tanh)
+
+    #l_forward_2 = lasagne.layers.FeaturePoolLayer(l_forward_2,pool_size=4, pool_function=T.mean)
+
+
+    l_mul = lasagne.layers.ElemwiseMergeLayer([l_lstm_1, l_lstm_2], merge_function=T.mul)
+    l_mul= lasagne.layers.GlobalPoolLayer(l_mul)
+
+
+    l_sub = lasagne.layers.AbsLayer(lasagne.layers.ElemwiseMergeLayer([l_lstm_1, l_lstm_2], merge_function=T.sub))
+    l_sub = lasagne.layers.GlobalPoolLayer(l_sub)
+
+    
+    l_mul_Dense = lasagne.layers.DenseLayer(l_mul, num_units=args.hiddenDim, nonlinearity=None, b=None)
+    l_sub_Dense = lasagne.layers.DenseLayer(l_sub, num_units=args.hiddenDim, nonlinearity=None, b=None)
+    
+
+    l_sum = lasagne.layers.ElemwiseSumLayer([l_mul_Dense, l_sub_Dense])
+    l_hid = lasagne.layers.NonlinearityLayer(l_sum, nonlinearity=lasagne.nonlinearities.sigmoid)
+
+
+    l_out = lasagne.layers.DenseLayer(
+            l_hid, num_units=args.outputDim,
+            nonlinearity=lasagne.nonlinearities.softmax)
+
     return l_out
 
 def iterate_minibatches(inputs1, inputs2, targets, scores, batchsize, shuffle=False):
@@ -171,8 +234,7 @@ if __name__ == '__main__':
     target_var = T.fmatrix('targets')
 
     # Create neural network model (depending on first command line parameter)
-    print("Building model and compiling functions...")
-    network = build_network(input1_var, input2_var, maxlen, args.wvecDim)
+    network = build_network_0(args, input1_var, input2_var, maxlen)
 
     # Create a loss expression for training, i.e., a scalar objective we want
     # to minimize (for our multi-class problem, it is the cross-entropy loss):
