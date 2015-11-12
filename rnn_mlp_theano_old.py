@@ -53,18 +53,17 @@ class Optimization:
             self.gradt_rnn_2 = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
 
         
-    def initial_theano_mlp(self, hiddenDim, outputDim, activation, epsilon = 1e-16, startFromEariler=False):
+    def initial_theano_mlp(self, hiddenDim, outputDim, epsilon = 1e-16, startFromEariler=False):
 
         self.outputDim = outputDim
         self.hiddenDim = hiddenDim
-        self.activation = activation
 
         x1_batch = T.fmatrix('x1_batch')  # n * d, the data is presented as one sentence output
         x2_batch = T.fmatrix('x2_batch')  # n * d, the data is presented as one sentence output
         y_batch = T.fmatrix('y_batch')  # n * d, the target distribution\
 
         self.classifier = MLP(rng=self.rng,input_1=x1_batch, input_2=x2_batch, n_in=self.rep_model.wvecDim,
-                                n_hidden=hiddenDim,n_out=outputDim,activation=activation)
+                                n_hidden=hiddenDim,n_out=outputDim)
 
         if startFromEariler:
             with open(self.outputFile, "rb") as f:
@@ -80,7 +79,9 @@ class Optimization:
         L1_reg=0.00
         L2_reg=0.0001 
 
-        cost = self.classifier.kl_divergence(y_batch) + L1_reg * self.classifier.L1 + L2_reg * self.classifier.L2_sqr
+        #cost = self.classifier.kl_divergence(y_batch) + L1_reg * self.classifier.L1 + L2_reg * self.classifier.L2_sqr
+
+        cost = T.mean(classifier.kl_divergence(y_batch)) + L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
 
         [hw1, hw2, hb, ow, ob] = self.classifier.hiddenLayer.params + self.classifier.logRegressionLayer.params
 
@@ -435,7 +436,6 @@ if __name__ == '__main__':
     parser.add_argument("--repModel",dest="repModel",type=str,default="lstm")
     parser.add_argument("--debug",dest="debug",type=str,default="False")
     parser.add_argument("--useLearnedModel",dest="useLearnedModel",type=str,default="False")
-    parser.add_argument("--mlpActivation",dest="mlpActivation",type=str,default=None)
     args = parser.parse_args()
 
     if args.debug == "True":
@@ -448,8 +448,6 @@ if __name__ == '__main__':
     devTrees = tr.loadTrees("dev")
     print "train number %d"%len(trainTrees)
     print "dev number %d"%len(devTrees)
-
-    from optimization import Optimization
      
     optimizer = Optimization(outputFile=args.outFile, alpha=args.step, optimizer=args.optimizer)
 
@@ -460,7 +458,7 @@ if __name__ == '__main__':
 
     optimizer.initial_RepModel(tr, args.repModel, args.wvecDim, startFromEariler=startFromEariler)
 
-    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, args.mlpActivation, startFromEariler=startFromEariler)
+    optimizer.initial_theano_mlp(args.hiddenDim, args.outputDim, startFromEariler=startFromEariler)
 
     best_dev_score  = 0.
 
