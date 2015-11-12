@@ -17,6 +17,9 @@ import cPickle
 
 from utils import *
 
+import autograd.numpy as auto_grad_np
+from autograd import grad, elementwise_grad
+
 def sgd_updates_adadelta(params,cost,rho=0.95,epsilon=1e-6,norm_lim=9):
     """
     adadelta update rule, mostly from
@@ -63,6 +66,13 @@ def sgd_updates_adagrad(params,cost):
         updates[param] = stepped_param       
     return updates 
 
+def mul(first_tree_rep, second_tree_rep):
+
+    return auto_grad_np.multiply(first_tree_rep, second_tree_rep)
+
+def abs_sub(first_tree_rep, second_tree_rep, epsilon = 1e-16):
+
+    return auto_grad_np.abs(first_tree_rep-second_tree_rep + epsilon)
 
 def train(train_data, dev_data, args, validate=True):
 
@@ -198,6 +208,7 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
 
             for index, batchData in enumerate(batches):
 
+
                 # this is important to clear the share memory
                 rep_model.clearDerivativeSharedMemory()
 
@@ -226,8 +237,9 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
 
                     first_tree_rep = rep_model.forwardProp(item[0])
                     second_tree_rep = rep_model.forwardProp(item[1])
-                    mul_rep = first_tree_rep * second_tree_rep
-                    sub_rep = np.abs(first_tree_rep-second_tree_rep)
+
+                    mul_rep = mul(first_tree_rep, second_tree_rep)
+                    sub_rep = abs_sub(first_tree_rep, second_tree_rep)
 
                     input_reps_first_train[i + index*args.minibatch, :] = first_tree_rep
                     input_reps_second_train[i + index*args.minibatch, :] = second_tree_rep
@@ -261,35 +273,24 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
                     delta_mul = delta_x1(mul_rep_2d, sub_rep_2d, td_2d)  
                     delta_sub = delta_x2(mul_rep_2d, sub_rep_2d, td_2d)
 
-                    delta_rep1_mul = second_tree_rep * delta_mul
-                    delta_rep2_mul = first_tree_rep * delta_mul
+                    mul_grad_1 = elementwise_grad(mul, argnum=0) 
+                    mul_grad_2 = elementwise_grad(mul, argnum=1)
 
-                    f_s = ((first_tree_rep - second_tree_rep) > 0)
-                    s_f = ((second_tree_rep - first_tree_rep) > 0)
+                    first_mul_grad = mul_grad_1(first_tree_rep,second_tree_rep)
+                    second_mul_grad = mul_grad_2(first_tree_rep,second_tree_rep)
 
-                    f_s_a = np.zeros(rep_model.wvecDim)
-                    i =0 
-                    for x in np.nditer(f_s):
-                        if x:
-                            f_s_a[i] = 1
-                        else:
-                            f_s_a[i] = -1
-                        i += 1
+                    delta_rep1_mul =  first_mul_grad * delta_mul
+                    delta_rep2_mul =  second_mul_grad * delta_mul
 
-                    delta_rep1_sub = f_s_a * delta_sub
+                    sub_grad_1 = elementwise_grad(abs_sub, argnum=0) 
+                    sub_grad_2 = elementwise_grad(abs_sub, argnum=1) 
 
-                    s_f_a = np.zeros(rep_model.wvecDim)
+                    first_sub_grad = sub_grad_1(first_tree_rep,second_tree_rep)
+                    second_sub_grad = sub_grad_2(first_tree_rep,second_tree_rep)
 
-                    i =0 
-                    for x in np.nditer(s_f):
-                        if x:
-                            s_f_a[i] = 1
-                        else:
-                            s_f_a[i] = -1
-                        i += 1
+                    delta_rep1_sub = first_sub_grad * delta_sub
+                    delta_rep2_sub =  second_sub_grad * delta_sub
 
-                    delta_rep2_sub = s_f_a * delta_sub
-                   
                     rep_model.backProp(item[0], delta_rep1_mul)
                     rep_model.backProp(item[0], delta_rep1_sub)
                     rep_model.backProp(item[1], delta_rep2_mul)
@@ -304,13 +305,20 @@ def train_predict(args, action, trainData=None, devData=None, testData=None, eps
                     rep_model.stack[1:] = [P-learning_rate*dP for P,dP in zip(rep_model.stack[1:],update[1:])]
 
                     # handle dictionary update sparsely
+                    """
                     dL = update[0]
                     for j in range(rep_model.numWords):
                         rep_model.L[:,j] -= learning_rate*dL[j]
+                    """
+                    if np.isnan(np.amin(rep_model.L)) or np.isnan(np.amin(rep_model.stack[1])):
+                        import pdb
+                        pdb.set_trace()
+                        print "xxxx"
 
                 elif args.optimizer == 'adagrad':
 
                     update_params_adagrad(mul_reps, sub_reps, targetData)
+                    
                     rnn_optimizer.adagrad_rnn(rep_model.dstack)
 
                 elif args.optimizer == 'adadelta':
@@ -495,6 +503,7 @@ class RNN_Optimization:
 
         self.rep_model.stack[1:] = [P-self.learning_rate*dP for P,dP in zip(self.rep_model.stack[1:],dparam)]
 
+
         # handle dictionary separately
         dL = grad[0]
         dLt = self.gradt_rnn[0]
@@ -539,5 +548,42 @@ class RNN_Optimization:
 
         #updates.append((param_update_2, rho*param_update_2+(1. - rho)*(dparam ** 2)))
         self.gradt_rnn_2[1:] = [rho*dt + (1.0-rho)*( d** 2) for dt, d in zip(self.gradt_rnn_2[1:], dparam)]
+
+if __name__ == '__main__':
+    
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Usage")
+
+    parser.add_argument("--minibatch",dest="minibatch",type=int,default=30)
+    parser.add_argument("--optimizer",dest="optimizer",type=str,default=None)
+    parser.add_argument("--epochs",dest="epochs",type=int,default=50)
+    parser.add_argument("--step",dest="step",type=float,default=1e-2)
+    parser.add_argument("--outputDim",dest="outputDim",type=int,default=5)
+    parser.add_argument("--hiddenDim",dest="hiddenDim",type=int,default=50)
+    parser.add_argument("--wvecDim",dest="wvecDim",type=int,default=30)
+    parser.add_argument("--outFile",dest="outFile",type=str, default="models/test.bin")
+    parser.add_argument("--numProcess",dest="numProcess",type=int,default=None)
+    parser.add_argument("--repModel",dest="repModel",type=str,default="lstm")
+    parser.add_argument("--debug",dest="debug",type=str,default="False")
+    parser.add_argument("--useLearnedModel",dest="useLearnedModel",type=str,default="False")
+    args = parser.parse_args()
+
+    if args.debug == "True":
+        import pdb
+        pdb.set_trace()
+
+    import dependency_tree as tr     
+    trainTrees = tr.loadTrees("train")
+    devTrees = tr.loadTrees("dev")
+    testTrees = tr.loadTrees("test")
+    print "train number %d"%len(trainTrees)
+    print "dev number %d"%len(devTrees)
+    print "test number %d"%len(testTrees)
+    
+    train(trainTrees, devTrees, args, validate=True)
+
+    #predict(testTrees, args)
+
 
 
