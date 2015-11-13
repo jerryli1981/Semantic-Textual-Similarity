@@ -6,7 +6,7 @@ set -x
 ###################
 
 # training params
-epochs=20
+epochs=100
 step=0.01
 numLabels=5
 hiddenDim=100
@@ -30,7 +30,7 @@ python -u rnn_mlp_keras.py --debug $debug --useLearnedModel $useLearnedModel --s
 elif [ "$1" == "lasagne" ]
 then
 echo "run rnn_mlp_lasagne"
-python -u rnn_mlp_lasagne.py --debug $debug --useLearnedModel $useLearnedModel --step $step --repModel $model \
+python -u rnn_mlp_lasagne_r.py --debug $debug --useLearnedModel $useLearnedModel --step $step --repModel $model \
 				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs --outFile $outFile\
                   				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
 
@@ -38,6 +38,13 @@ elif [ "$1" == "theano" ]
 then
 echo "run rnn_mlp_theano"
 python -u rnn_mlp_theano.py --debug $debug --useLearnedModel $useLearnedModel --step $step --repModel $model \
+				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs --outFile $outFile\
+                  				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
+
+elif [ "$1" == "rmlp" ]
+then
+echo "run RecursiveNN_MLP"
+python -u RecursiveNN_MLP.py --debug $debug --useLearnedModel $useLearnedModel --step $step --repModel $model \
 				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs --outFile $outFile\
                   				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
 

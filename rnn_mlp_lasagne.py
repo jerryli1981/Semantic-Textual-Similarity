@@ -8,6 +8,8 @@ import theano.tensor as T
 
 from scipy.stats import pearsonr
 
+sys.path.append('../Lasagne')
+
 import lasagne
 
 def load_data(data, dep_tree, maxlen, args):

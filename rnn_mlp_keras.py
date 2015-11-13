@@ -2,16 +2,20 @@ import sys
 import os
 import time
 
-
 import numpy as np
 import theano
+
+from scipy.stats import pearsonr
+
+sys.path.append('../keras')
+
+import keras
+
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Activation, Merge, TimeDistributedMerge, TimeDistributedDense
 from keras.layers.core import Flatten
 from keras.optimizers import SGD, Adam, RMSprop, Adagrad
 from keras.layers.recurrent import LSTM
-
-from scipy.stats import pearsonr
 
 
 def load_data(data, dep_tree, maxlen, args):
