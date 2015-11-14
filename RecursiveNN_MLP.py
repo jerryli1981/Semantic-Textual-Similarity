@@ -12,7 +12,7 @@ from scipy.stats import pearsonr
 
 class rnn_mlp_model(object):
 
-    def __init__(self, rng, n_rel, wvecDim, hiddenDim, outputDim, L):
+    def __init__(self, rng, n_rel, wvecDim, hiddenDim, outputDim, L, input_shape):
 
         self.wvecDim = wvecDim
         self.outputDim = outputDim
@@ -135,6 +135,13 @@ class rnn_mlp_model(object):
         self.stack = [self.L, self.WR, self.WV, self.b_rnn, 
                         self.W_1, self.W_2, self.b_mlp_hidden, self.W_out_mlp, self.b_out_mlp]
 
+        (mini_batch, seq_len, n_children, n_ele) = input_shape
+
+        self.mb = mini_batch
+        self.seq_len = seq_len
+        self.n_children = n_children
+        self.n_ele = n_ele
+
     def step(self, tree):
         #because many training epoch. 
         tree.resetFinished()
@@ -180,49 +187,120 @@ class rnn_mlp_model(object):
         return tree.root.hAct
 
 
+    def get_output_for(self, inputs):
+
+        reps = np.zeros((len(inputs), self.wvecDim))
+
+        for i, input_tr in enumerate(inputs):
+            
+            #tree.resetFinished() -2: unfinished, -3:finished
+            for node_idx in range(self.seq_len):
+                node = input_tr[node_idx]
+                node[0,4] = -2
+
+            #input_tr is tensor3 (seq_len, n_children, n_ele)
+            root_node = input_tr[-1]
+            
+            to_do = []
+            to_do.append(root_node)
+
+            while to_do:
+     
+                curr_node = to_do.pop(0)
+                curr_vec = self.L.get_value()[:, curr_node[0,0]]
+
+                #if node is leaf, len(curr.kids) == 0:
+                if curr_node[0,1] == -1:
+
+                    curr_hAct = np.tanh(np.dot(curr_vec, self.WV.get_value()) + self.b_rnn.get_value())
+                    curr_node[0,5:] = curr_hAct
+
+                    #curr.finished = True
+                    curr_node[0, 4] = -3
+
+                else:
+                    #check if all kids are finished
+                    all_done = True
+
+                    for kid_idx in range(self.n_children):
+
+                        if curr_node[kid_idx, 0] == -1:
+                            continue
+
+                        kid_local_idx = curr_node[kid_idx, 1] 
+
+                        kid_node = input_tr[kid_local_idx]
+
+                        if kid_node[0, 4] == -2:
+
+                            to_do.append(kid_node)
+                            all_done = False
+
+                    if all_done:
+
+                        sum_ = np.zeros(self.wvecDim)
+                        for kid_idx in range(self.n_children):
+
+                            if curr_node[kid_idx, 0] == -1:
+                                continue
+
+                            rel_idx = curr_node[kid_idx, 3]
+
+                            W_rel = self.WR.get_value()[rel_idx]
+
+                            kid_local_idx = curr_node[kid_idx, 1] 
+
+                            kid_node = input_tr[kid_local_idx]
+
+                            kid_node_hAct = kid_node[0,5:]
+
+                            sum_ += np.dot(kid_node_hAct, W_rel)
+                    
+                        curr_hAct = np.tanh(sum_ + np.dot(curr_vec, self.WV.get_value()) + self.b_rnn.get_value())
+                        curr_node[0,5:] = curr_hAct
+
+                        #curr.finished = True
+                        curr_node[0, 4] = -3
+
+                    else:
+                        to_do.append(curr_node)
+            
+            reps[i] = root_node[0,5:]
+        
+        return reps
+
+
     def forwardProp(self, inputs1, inputs2, targets):
 
-        cost = 0.0
+        l_reps = self.get_output_for(inputs1)
+        r_reps = self.get_output_for(inputs2)
 
-        for l_tree, r_tree, y in zip(inputs1, inputs2, targets):
-            
-            l_rep = self.step(l_tree)
-            r_rep = self.step(r_tree)
-
-            l_rep = l_rep.reshape((1, self.wvecDim))
-            r_rep = r_rep.reshape((1, self.wvecDim))
-
-            y = y.reshape((1, self.outputDim))
-
-            cost += self.cost_function(l_rep, r_rep, y) + self.param_error
-
-        return cost
+        return self.cost_function(l_reps, r_reps, targets) + self.param_error
 
     def predict(self, inputs1, inputs2, targets):
 
-        l_reps = np.zeros((len(inputs1), self.wvecDim))
-        r_reps = np.zeros((len(inputs1), self.wvecDim))
-
-        for i, (l_tree, r_tree) in enumerate(zip(inputs1, inputs2)):
-            
-            l_reps[i, :] = self.step(l_tree)
-            r_reps[i, :] = self.step(r_tree)
+        l_reps = self.get_output_for(inputs1)
+        r_reps = self.get_output_for(inputs2)
 
         err, pred = self.val_fn(l_reps,r_reps, targets)
 
         return err, pred
 
-
-def load_data(data, dep_tree, args):
-
-    word2vecs = dep_tree.loadWord2VecMap()
-
-    L = word2vecs[:args.wvecDim, :]
+def load_data(data, args, seq_len=37, n_children=6, n_ele=5, unfinished_flag=-2):
 
     Y = np.zeros((len(data), args.outputDim+1), dtype=np.float32)
+    scores = np.zeros((len(data)), dtype=np.float32)
 
+    # to store hidden representation
+    storage_dim = n_ele + args.wvecDim
+
+    X1 = np.zeros((len(data), seq_len, n_children, storage_dim), dtype=np.float32)
+    X1.fill(-1.0)
+    X2 = np.zeros((len(data), seq_len, n_children, storage_dim), dtype=np.float32)
+    X2.fill(-1.0)
+    
     for i, (score, item) in enumerate(data):
-        first_depTree, second_depTree = item
+        first_t, second_t= item
 
         sim = score
         ceil = np.ceil(sim)
@@ -233,58 +311,112 @@ def load_data(data, dep_tree, args):
             Y[i, floor] = ceil-sim 
             Y[i, ceil] = sim-floor
 
+        f_idxSet = set()
+        for govIdx, depIdx in first_t.dependencies:
+            f_idxSet.add(govIdx)
+            f_idxSet.add(depIdx)
+
+        for j, Node in enumerate(first_t.nodes):
+            if j not in f_idxSet:
+                continue
+            if len(Node.kids) != 0:
+                children = np.zeros((n_children, storage_dim), dtype=np.float32)
+                children.fill(-1.0)
+                for m, (depIdx, rel) in enumerate(Node.kids):
+                    depGlobalIdx = first_t.nodes[depIdx].index
+                    children[m,0] = Node.index
+                    children[m,1] = depIdx
+                    children[m,2] = depGlobalIdx
+                    children[m,3] = rel.index
+                    children[m,4] = unfinished_flag
+                X1[i, j] = children
+            else:
+                children = np.zeros((n_children, storage_dim), dtype=np.float32)
+                children.fill(-1.0)
+                #children[0] = np.array([Node.index, -1, -1, -1, unfinished_flag], dtype=np.int32)
+                children[0,0] = Node.index
+                children[0,1] = -1
+                children[0,2] = -1
+                children[0,3] = -1
+                children[0,4] = unfinished_flag
+                X1[i, j] = children
+        
+        first_root = np.zeros((n_children, storage_dim), dtype=np.float32)
+        first_root.fill(-1.0)
+        for c, (depIdx, rel) in enumerate(first_t.root.kids):
+            depGlobalIdx = first_t.nodes[depIdx].index
+            #first_root[c] = np.array([first_t.root.index, depIdx, depGlobalIdx, rel.index, unfinished_flag], dtype=np.int32)
+            first_root[c,0] = first_t.root.index
+            first_root[c,1] = depIdx
+            first_root[c,2] = depGlobalIdx
+            first_root[c,3] = rel.index
+            first_root[c,4] = unfinished_flag
+        X1[i, -1] = first_root
+
+        s_idxSet = set()
+        for govIdx, depIdx in second_t.dependencies:
+            s_idxSet.add(govIdx)
+            s_idxSet.add(depIdx)
+        
+        for j, Node in enumerate(second_t.nodes):
+            if j not in s_idxSet:
+                continue
+            if len(Node.kids) != 0:
+                children = np.zeros((n_children, storage_dim), dtype=np.float32)
+                children.fill(-1.0)
+                for m, (depIdx, rel) in enumerate(Node.kids):
+                    depGlobalIdx = second_t.nodes[depIdx].index
+                    children[m,0] = Node.index
+                    children[m,1] = depIdx
+                    children[m,2] = depGlobalIdx
+                    children[m,3] = rel.index
+                    children[m,4] = unfinished_flag
+                    #children[m] = np.array([Node.index, depIdx, depGlobalIdx, rel.index, unfinished_flag], dtype=np.int32)
+                X2[i, j] = children
+
+            else:
+                children = np.zeros((n_children, storage_dim), dtype=np.float32)
+                children.fill(-1.0)
+                #children[0] = np.array([Node.index, -1, -1, -1, unfinished_flag], dtype=np.int32)
+                children[0,0] = Node.index
+                children[0,1] = -1
+                children[0,2] = -1
+                children[0,3] = -1
+                children[0,4] = unfinished_flag
+                X2[i, j] = children
+
+        second_root = np.zeros((n_children, storage_dim), dtype=np.float32)
+        second_root.fill(-1.0)
+        for c, (depIdx, rel) in enumerate(second_t.root.kids):
+            depGlobalIdx = second_t.nodes[depIdx].index
+            #second_root[c] = np.array([second_t.root.index, depIdx, depGlobalIdx, rel.index, unfinished_flag], dtype=np.int32)
+            second_root[c,0] = second_t.root.index
+            second_root[c,1] = depIdx
+            second_root[c,2] = depGlobalIdx
+            second_root[c,3] = rel.index
+            second_root[c,4] = unfinished_flag
+
+        X2[i, -1] = second_root
+        
+        scores[i] = score
+
     Y = Y[:, 1:]
 
-    X1 = []
-    X2 = []
-
-    scores = np.zeros((len(data)), dtype=np.float32)
-
-    for i, (score, item) in enumerate(data):
-        first_depTree, second_depTree = item
-        X1.append(first_depTree)
-        X2.append(second_depTree)
-        scores[i] = score
-        
-    return X1, X2, Y, scores
+    input_shape = (len(data), seq_len, n_children, n_ele)
+      
+    return X1, X2, Y, scores, input_shape
 
 def iterate_minibatches(inputs1, inputs2, targets, scores, batchsize, shuffle=False):
-
     assert len(inputs1) == len(targets)
-
     if shuffle:
-        indices = [ i for i in range(len(inputs1))]
-        random.shuffle(indices)
-
-        ninputs1 = [inputs1[i] for i in indices]
-        batches_inputs1 = [ninputs1[idx : idx + batchsize] for idx in xrange(0, len(inputs1), batchsize)]
-
-        ninputs2 = [inputs2[i] for i in indices]
-        batches_inputs2 = [ninputs2[idx : idx + batchsize] for idx in xrange(0, len(inputs2), batchsize)]
-
-        ntargets = [targets[i] for i in indices]
-        batches_targets = [ntargets[idx : idx + batchsize] for idx in xrange(0, len(targets), batchsize)]
-
-        nscores = [scores[i] for i in indices]
-        batches_scores = [nscores[idx : idx + batchsize] for idx in xrange(0, len(scores), batchsize)]
-
-        return zip(batches_inputs1, batches_inputs2, batches_targets,batches_scores)
-    else:
-
-        indices = [ i for i in range(len(inputs1))]
-        ninputs1 = [inputs1[i] for i in indices]
-        batches_inputs1 = [ninputs1[idx : idx + batchsize] for idx in xrange(0, len(inputs1), batchsize)]
-
-        ninputs2 = [inputs2[i] for i in indices]
-        batches_inputs2 = [ninputs2[idx : idx + batchsize] for idx in xrange(0, len(inputs2), batchsize)]
-
-        ntargets = [targets[i] for i in indices]
-        batches_targets = [ntargets[idx : idx + batchsize] for idx in xrange(0, len(targets), batchsize)]
-
-        nscores = [scores[i] for i in indices]
-        batches_scores = [nscores[idx : idx + batchsize] for idx in xrange(0, len(scores), batchsize)]
-
-        return zip(batches_inputs1, batches_inputs2, batches_targets,batches_scores)
+        indices = np.arange(len(inputs1))
+        np.random.shuffle(indices)
+    for start_idx in range(0, len(inputs1) - batchsize + 1, batchsize):
+        if shuffle:
+            excerpt = indices[start_idx:start_idx + batchsize]
+        else:
+            excerpt = slice(start_idx, start_idx + batchsize)
+        yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt]
 
 
 if __name__ == '__main__':
@@ -315,18 +447,16 @@ if __name__ == '__main__':
     print("Loading data...")
     import dependency_tree as tr     
     trainTrees = tr.loadTrees("train")
-    #trainTrees = trainTrees[:100]
     devTrees = tr.loadTrees("dev")
-    #devTrees = devTrees[:10]
     testTrees = tr.loadTrees("test")
     
     print "train number %d"%len(trainTrees)
     print "dev number %d"%len(devTrees)
     print "test number %d"%len(testTrees)
     
-    X1_train, X2_train, Y_train, scores_train = load_data(trainTrees, tr, args)
-    X1_dev, X2_dev, Y_dev, scores_dev = load_data(devTrees, tr, args)
-    X1_test, X2_test, Y_test, scores_test = load_data(testTrees, tr, args)
+    X1_train, X2_train, Y_train, scores_train,input_shape = load_data(trainTrees, args)
+    X1_dev, X2_dev, Y_dev, scores_dev,_ = load_data(devTrees, args)
+    X1_test, X2_test, Y_test, scores_test,_ = load_data(testTrees, args)
 
 
     rng = np.random.RandomState(1234)
@@ -335,7 +465,7 @@ if __name__ == '__main__':
     n_rel=len(tr.loadRelMap())
 
     print("Building model...")
-    model = rnn_mlp_model(rng, n_rel, args.wvecDim, args.hiddenDim, args.outputDim, L)
+    model = rnn_mlp_model(rng, n_rel, args.wvecDim, args.hiddenDim, args.outputDim, L, input_shape)
 
     print("Starting training...")
     # We iterate over epochs:
@@ -349,7 +479,7 @@ if __name__ == '__main__':
             cost = model.forwardProp(inputs1, inputs2, targets)
             gparams = [T.grad(cost, param) for param in model.stack]
             updates = [(param, param - args.step * gtheta) for param, gtheta in zip(model.stack, gparams)]
-
+            print train_batches
             for e in updates:
                 tmp_new = e[1].eval({})
                 e[0].set_value(tmp_new)
