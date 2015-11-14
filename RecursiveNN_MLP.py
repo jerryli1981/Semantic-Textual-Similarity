@@ -440,11 +440,13 @@ def sgd_updates_adagrad(params,cost):
         stepped_param = param - step
         updates[param] = stepped_param 
 
+    return updates
+    """
     ret = []
     for key, value in updates.iteritems(): 
         ret.append((key,value))    
     return ret 
-
+    """
 
 if __name__ == '__main__':
 
@@ -511,11 +513,16 @@ if __name__ == '__main__':
             updates = sgd_updates_adagrad(model.stack, cost)
 
             print train_batches
+
+            for key, value in updates.iteritems():
+                tmp_new = value.eval({})
+                key.set_value(tmp_new)
             
+            """
             for e in updates:
                 tmp_new = e[1].eval({})
                 e[0].set_value(tmp_new)
-
+            """
             train_err += cost.eval({})
 
             train_batches += 1
