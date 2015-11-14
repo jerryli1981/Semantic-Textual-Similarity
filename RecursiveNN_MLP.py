@@ -10,6 +10,8 @@ import random
 
 from scipy.stats import pearsonr
 
+from collections import OrderedDict
+
 class rnn_mlp_model(object):
 
     def __init__(self, rng, n_rel, wvecDim, hiddenDim, outputDim, L, input_shape):
@@ -418,6 +420,31 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, batchsize, shuffle=Fa
             excerpt = slice(start_idx, start_idx + batchsize)
         yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt]
 
+def sgd_updates_adagrad(params,cost):
+    
+    updates = OrderedDict({})
+    
+    exp_sqr_grads = OrderedDict({})
+    gparams = []
+    for param in params:
+        empty = np.zeros_like(param.get_value(), dtype=theano.config.floatX)
+        exp_sqr_grads[param] = theano.shared(value=empty,name="exp_grad_%s" % param.name)
+        gp = T.grad(cost, param)
+        gparams.append(gp)
+
+    for param, gp in zip(params, gparams):
+        exp_sg = exp_sqr_grads[param]
+        up_exp_sg = exp_sg + T.sqr(gp)
+        updates[exp_sg] = up_exp_sg
+        step =  gp * ( 1./T.sqrt(up_exp_sg) )
+        stepped_param = param - step
+        updates[param] = stepped_param 
+
+    ret = []
+    for key, value in updates.iteritems(): 
+        ret.append((key,value))    
+    return ret 
+
 
 if __name__ == '__main__':
 
@@ -477,9 +504,14 @@ if __name__ == '__main__':
         for batch in iterate_minibatches(X1_train, X2_train, Y_train, scores_train, args.minibatch, shuffle=True):
             inputs1, inputs2, targets, _ = batch
             cost = model.forwardProp(inputs1, inputs2, targets)
-            gparams = [T.grad(cost, param) for param in model.stack]
-            updates = [(param, param - args.step * gtheta) for param, gtheta in zip(model.stack, gparams)]
+            #gparams = [T.grad(cost, param) for param in model.stack]
+
+            #updates = [(param, param - args.step * gtheta) for param, gtheta in zip(model.stack, gparams)]
+
+            updates = sgd_updates_adagrad(model.stack, cost)
+
             print train_batches
+            
             for e in updates:
                 tmp_new = e[1].eval({})
                 e[0].set_value(tmp_new)
