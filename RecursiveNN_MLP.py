@@ -310,7 +310,7 @@ def load_data(data, args, seq_len=37, n_children=6, n_ele=5, unfinished_flag=-2)
         if ceil == floor:
             Y[i, floor] = 1
         else:
-            Y[i, floor] = ceil-sim 
+            Y[i, floor] = ceil-sim
             Y[i, ceil] = sim-floor
 
         f_idxSet = set()
@@ -420,7 +420,7 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, batchsize, shuffle=Fa
             excerpt = slice(start_idx, start_idx + batchsize)
         yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt]
 
-def sgd_updates_adagrad(params,cost):
+def sgd_updates_adagrad(params,cost,epsilon=1e-6):
     
     updates = OrderedDict({})
     
@@ -437,7 +437,7 @@ def sgd_updates_adagrad(params,cost):
         up_exp_sg = exp_sg + T.sqr(gp)
         up_exp_sg = T.cast(up_exp_sg, "float32")
         updates[exp_sg] = up_exp_sg
-        step =  gp * ( 1./T.sqrt(up_exp_sg) )
+        step =  gp * ( 1./T.sqrt(up_exp_sg+epsilon) )
         stepped_param = param - step
         updates[param] = stepped_param 
 
@@ -507,26 +507,26 @@ if __name__ == '__main__':
         for batch in iterate_minibatches(X1_train, X2_train, Y_train, scores_train, args.minibatch, shuffle=True):
             inputs1, inputs2, targets, _ = batch
             cost = model.forwardProp(inputs1, inputs2, targets)
-            #gparams = [T.grad(cost, param) for param in model.stack]
+            gparams = [T.grad(cost, param) for param in model.stack]
 
-            #updates = [(param, param - args.step * gtheta) for param, gtheta in zip(model.stack, gparams)]
+            updates = [(param, param - args.step * gtheta) for param, gtheta in zip(model.stack, gparams)]
 
+            """
             updates = sgd_updates_adagrad(model.stack, cost)
-
-            print train_batches
 
             for key, value in updates.iteritems():
                 tmp_new = value.eval({})
                 key.set_value(tmp_new)
-            
             """
+            
             for e in updates:
                 tmp_new = e[1].eval({})
                 e[0].set_value(tmp_new)
-            """
+            
             train_err += cost.eval({})
 
             train_batches += 1
+            print train_batches
             cost = 0.0
 
         # And a full pass over the validation data:
