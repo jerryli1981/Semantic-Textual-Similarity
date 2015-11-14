@@ -37,19 +37,19 @@ class DTree:
         
         # add dependency edges between nodes
         rootIdx = None
-        dependencies = []
+        self.dependencies = []
         for rel, govIdx, depIdx in self.deps:
             if govIdx == -1:
                 rootIdx = depIdx
                 continue
             self.nodes[govIdx].kids.append((depIdx, Relation(rel)))
             self.nodes[depIdx].parent.append((govIdx, Relation(rel)))
-            dependencies.append((govIdx, depIdx))
+            self.dependencies.append((govIdx, depIdx))
 
         self.root = self.nodes[rootIdx]
 
         G = nx.DiGraph()
-        G.add_edges_from(dependencies)
+        G.add_edges_from(self.dependencies)
 
         self.is_dag = nx.is_directed_acyclic_graph(G)
 
