@@ -47,6 +47,7 @@ class DTree:
             self.dependencies.append((govIdx, depIdx))
 
         self.root = self.nodes[rootIdx]
+        self.rootIdx = rootIdx
 
         G = nx.DiGraph()
         G.add_edges_from(self.dependencies)
