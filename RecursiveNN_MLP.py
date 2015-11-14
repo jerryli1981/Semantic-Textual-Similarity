@@ -435,6 +435,7 @@ def sgd_updates_adagrad(params,cost):
     for param, gp in zip(params, gparams):
         exp_sg = exp_sqr_grads[param]
         up_exp_sg = exp_sg + T.sqr(gp)
+        up_exp_sg = T.cast(up_exp_sg, "float32")
         updates[exp_sg] = up_exp_sg
         step =  gp * ( 1./T.sqrt(up_exp_sg) )
         stepped_param = param - step
