@@ -137,71 +137,30 @@ class rnn_mlp_model(object):
         self.stack = [self.L, self.WR, self.WV, self.b_rnn, 
                         self.W_1, self.W_2, self.b_mlp_hidden, self.W_out_mlp, self.b_out_mlp]
 
-        (mini_batch, seq_len, n_children, n_ele) = input_shape
-
-        self.mb = mini_batch
+        (mini_batch, seq_len, storage_dim) = input_shape
         self.seq_len = seq_len
-        self.n_children = n_children
-        self.n_ele = n_ele
-
-    def step(self, tree):
-        #because many training epoch. 
-        tree.resetFinished()
-
-        to_do = []
-        to_do.append(tree.root)
-
-        while to_do:
-        
-            curr = to_do.pop(0)
-            curr.vec = self.L.get_value()[:, curr.index]
-
-            # node is leaf
-            if len(curr.kids) == 0:
-
-                curr.hAct = np.tanh(np.dot(curr.vec, self.WV.get_value()) + self.b_rnn.get_value())
-                curr.finished=True
-
-            else:
-
-                #check if all kids are finished
-                all_done = True
-                for index, rel in curr.kids:
-                    node = tree.nodes[index]
-                    if not node.finished:
-                        to_do.append(node)
-                        all_done = False
-
-                if all_done:
-
-                    sum = np.zeros(self.wvecDim)
-                    for i, rel in curr.kids:
-                        W_rel = self.WR.get_value()[rel.index] # d * d
-                        sum += np.dot(tree.nodes[i].hAct, W_rel) 
-
-                    curr.hAct = np.tanh(sum + np.dot(curr.vec, self.WV.get_value()) + self.b_rnn.get_value())
-        
-                    curr.finished = True
-
-                else:
-                    to_do.append(curr)
-        
-        return tree.root.hAct
 
 
     def get_output_for(self, inputs):
 
         reps = np.zeros((len(inputs), self.wvecDim))
 
+        #(rootFlag, finishedFlag, globalgovIdx, n_children* (locaDepIdx, globalDepIdx, relIdx) , hiddenRep)
+
         for i, input_tr in enumerate(inputs):
             
             #tree.resetFinished() -2: unfinished, -3:finished
             for node_idx in range(self.seq_len):
                 node = input_tr[node_idx]
-                node[0,4] = -2
+                node[1] = -2
 
-            #input_tr is tensor3 (seq_len, n_children, n_ele)
-            root_node = input_tr[-1]
+            root_node = None
+            for node in input_tr:
+                if node[0] == 1:
+                    root_node = node
+
+            assert root_node is not None, "root node is null" 
+
             
             to_do = []
             to_do.append(root_node)
@@ -209,31 +168,34 @@ class rnn_mlp_model(object):
             while to_do:
      
                 curr_node = to_do.pop(0)
-                curr_vec = self.L.get_value()[:, curr_node[0,0]]
+                curr_vec = self.L.get_value()[:, curr_node[2]]
 
                 #if node is leaf, len(curr.kids) == 0:
-                if curr_node[0,1] == -1:
+                if curr_node[3] == -1:
 
                     curr_hAct = np.tanh(np.dot(curr_vec, self.WV.get_value()) + self.b_rnn.get_value())
-                    curr_node[0,5:] = curr_hAct
+                    curr_node[21:] = curr_hAct
 
                     #curr.finished = True
-                    curr_node[0, 4] = -3
+                    curr_node[1] = -3
 
                 else:
                     #check if all kids are finished
                     all_done = True
 
-                    for kid_idx in range(self.n_children):
+                    c_list = curr_node[3:21].tolist()
 
-                        if curr_node[kid_idx, 0] == -1:
-                            continue
+                    if -1 in c_list:
+                        minus_1_idx = c_list.index(-1)
+                        c_list = c_list[:minus_1_idx] 
+                    
+                    for r in range(0, len(c_list), 3):
 
-                        kid_local_idx = curr_node[kid_idx, 1] 
+                        localDepIdx = c_list[r]
 
-                        kid_node = input_tr[kid_local_idx]
+                        kid_node = input_tr[localDepIdx]
 
-                        if kid_node[0, 4] == -2:
+                        if kid_node[1] == -2:
 
                             to_do.append(kid_node)
                             all_done = False
@@ -241,33 +203,27 @@ class rnn_mlp_model(object):
                     if all_done:
 
                         sum_ = np.zeros(self.wvecDim)
-                        for kid_idx in range(self.n_children):
 
-                            if curr_node[kid_idx, 0] == -1:
-                                continue
+                        for r in range(0, len(c_list), 3):
 
-                            rel_idx = curr_node[kid_idx, 3]
-
+                            localDepIdx = c_list[r]
+                            rel_idx = c_list[r+2]
                             W_rel = self.WR.get_value()[rel_idx]
 
-                            kid_local_idx = curr_node[kid_idx, 1] 
-
-                            kid_node = input_tr[kid_local_idx]
-
-                            kid_node_hAct = kid_node[0,5:]
-
+                            kid_node = input_tr[localDepIdx]
+                            kid_node_hAct = kid_node[21:]
                             sum_ += np.dot(kid_node_hAct, W_rel)
                     
                         curr_hAct = np.tanh(sum_ + np.dot(curr_vec, self.WV.get_value()) + self.b_rnn.get_value())
-                        curr_node[0,5:] = curr_hAct
+                        curr_node[21:] = curr_hAct
 
                         #curr.finished = True
-                        curr_node[0, 4] = -3
+                        curr_node[1] = -3
 
                     else:
                         to_do.append(curr_node)
             
-            reps[i] = root_node[0,5:]
+            reps[i] = root_node[21:]
         
         return reps
 
@@ -288,17 +244,18 @@ class rnn_mlp_model(object):
 
         return err, pred
 
-def load_data(data, args, seq_len=37, n_children=6, n_ele=5, unfinished_flag=-2):
+def load_data(data, args, seq_len=36, n_children=6, unfinished_flag=-2):
 
     Y = np.zeros((len(data), args.outputDim+1), dtype=np.float32)
     scores = np.zeros((len(data)), dtype=np.float32)
 
     # to store hidden representation
-    storage_dim = n_ele + args.wvecDim
+    #(rootFlag, finishedFlag, globalgovIdx, n_children* (locaDepIdx, globalDepIdx, relIdx) , hiddenRep)
+    storage_dim = 1 + 1 + 1 + 3*n_children + args.wvecDim
 
-    X1 = np.zeros((len(data), seq_len, n_children, storage_dim), dtype=np.float32)
+    X1 = np.zeros((len(data), seq_len, storage_dim), dtype=np.float32)
     X1.fill(-1.0)
-    X2 = np.zeros((len(data), seq_len, n_children, storage_dim), dtype=np.float32)
+    X2 = np.zeros((len(data), seq_len, storage_dim), dtype=np.float32)
     X2.fill(-1.0)
     
     for i, (score, item) in enumerate(data):
@@ -319,92 +276,67 @@ def load_data(data, args, seq_len=37, n_children=6, n_ele=5, unfinished_flag=-2)
             f_idxSet.add(depIdx)
 
         for j, Node in enumerate(first_t.nodes):
+
             if j not in f_idxSet:
                 continue
+
+            node_vec = np.zeros((storage_dim,), dtype=np.float32)
+            node_vec.fill(-1.0)
+            if j == first_t.rootIdx:
+                node_vec[0] = 1
+
+            node_vec[1] = unfinished_flag
+            node_vec[2] = Node.index
+
             if len(Node.kids) != 0:
-                children = np.zeros((n_children, storage_dim), dtype=np.float32)
-                children.fill(-1.0)
-                for m, (depIdx, rel) in enumerate(Node.kids):
-                    depGlobalIdx = first_t.nodes[depIdx].index
-                    children[m,0] = Node.index
-                    children[m,1] = depIdx
-                    children[m,2] = depGlobalIdx
-                    children[m,3] = rel.index
-                    children[m,4] = unfinished_flag
-                X1[i, j] = children
-            else:
-                children = np.zeros((n_children, storage_dim), dtype=np.float32)
-                children.fill(-1.0)
-                #children[0] = np.array([Node.index, -1, -1, -1, unfinished_flag], dtype=np.int32)
-                children[0,0] = Node.index
-                children[0,1] = -1
-                children[0,2] = -1
-                children[0,3] = -1
-                children[0,4] = unfinished_flag
-                X1[i, j] = children
-        
-        first_root = np.zeros((n_children, storage_dim), dtype=np.float32)
-        first_root.fill(-1.0)
-        for c, (depIdx, rel) in enumerate(first_t.root.kids):
-            depGlobalIdx = first_t.nodes[depIdx].index
-            #first_root[c] = np.array([first_t.root.index, depIdx, depGlobalIdx, rel.index, unfinished_flag], dtype=np.int32)
-            first_root[c,0] = first_t.root.index
-            first_root[c,1] = depIdx
-            first_root[c,2] = depGlobalIdx
-            first_root[c,3] = rel.index
-            first_root[c,4] = unfinished_flag
-        X1[i, -1] = first_root
+
+                r = range(0, 3*n_children, 3)
+                r = r[:len(Node.kids)]
+                for d, c in enumerate(r):
+                    localDepIdx, rel = Node.kids[d]
+                    node_vec[3+c] = localDepIdx
+                    node_vec[4+c] = first_t.nodes[localDepIdx].index
+                    node_vec[5+c] = rel.index
+
+
+            X1[i, j] = node_vec
+
 
         s_idxSet = set()
         for govIdx, depIdx in second_t.dependencies:
             s_idxSet.add(govIdx)
             s_idxSet.add(depIdx)
-        
+
         for j, Node in enumerate(second_t.nodes):
+
             if j not in s_idxSet:
                 continue
+
+            node_vec = np.zeros((storage_dim,), dtype=np.float32)
+            node_vec.fill(-1.0)
+            if j == second_t.rootIdx:
+                node_vec[0] = 1
+
+            node_vec[1] = unfinished_flag
+            node_vec[2] = Node.index
+
             if len(Node.kids) != 0:
-                children = np.zeros((n_children, storage_dim), dtype=np.float32)
-                children.fill(-1.0)
-                for m, (depIdx, rel) in enumerate(Node.kids):
-                    depGlobalIdx = second_t.nodes[depIdx].index
-                    children[m,0] = Node.index
-                    children[m,1] = depIdx
-                    children[m,2] = depGlobalIdx
-                    children[m,3] = rel.index
-                    children[m,4] = unfinished_flag
-                    #children[m] = np.array([Node.index, depIdx, depGlobalIdx, rel.index, unfinished_flag], dtype=np.int32)
-                X2[i, j] = children
 
-            else:
-                children = np.zeros((n_children, storage_dim), dtype=np.float32)
-                children.fill(-1.0)
-                #children[0] = np.array([Node.index, -1, -1, -1, unfinished_flag], dtype=np.int32)
-                children[0,0] = Node.index
-                children[0,1] = -1
-                children[0,2] = -1
-                children[0,3] = -1
-                children[0,4] = unfinished_flag
-                X2[i, j] = children
+                r = range(0, 3*n_children, 3)
+                r = r[:len(Node.kids)]
+                for d, c in enumerate(r):
+                    localDepIdx, rel = Node.kids[d]
+                    node_vec[3+c] = localDepIdx
+                    node_vec[4+c] = second_t.nodes[localDepIdx].index
+                    node_vec[5+c] = rel.index
 
-        second_root = np.zeros((n_children, storage_dim), dtype=np.float32)
-        second_root.fill(-1.0)
-        for c, (depIdx, rel) in enumerate(second_t.root.kids):
-            depGlobalIdx = second_t.nodes[depIdx].index
-            #second_root[c] = np.array([second_t.root.index, depIdx, depGlobalIdx, rel.index, unfinished_flag], dtype=np.int32)
-            second_root[c,0] = second_t.root.index
-            second_root[c,1] = depIdx
-            second_root[c,2] = depGlobalIdx
-            second_root[c,3] = rel.index
-            second_root[c,4] = unfinished_flag
-
-        X2[i, -1] = second_root
-        
+            X2[i, j] = node_vec
+   
         scores[i] = score
 
     Y = Y[:, 1:]
 
-    input_shape = (len(data), seq_len, n_children, n_ele)
+    input_shape = (len(data), seq_len, storage_dim)
       
     return X1, X2, Y, scores, input_shape
 
@@ -524,9 +456,7 @@ if __name__ == '__main__':
                 e[0].set_value(tmp_new)
             
             train_err += cost.eval({})
-
             train_batches += 1
-            print train_batches
             cost = 0.0
 
         # And a full pass over the validation data:
