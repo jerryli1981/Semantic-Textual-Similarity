@@ -428,7 +428,7 @@ def sgd_updates_adagrad(params,cost):
     gparams = []
     for param in params:
         empty = np.zeros_like(param.get_value(), dtype=theano.config.floatX)
-        exp_sqr_grads[param] = theano.shared(value=empty,name="exp_grad_%s" % param.name,dtype=theano.config.floatX)
+        exp_sqr_grads[param] = theano.shared(value=empty,name="exp_grad_%s" % param.name)
         gp = T.grad(cost, param)
         gparams.append(gp)
 
