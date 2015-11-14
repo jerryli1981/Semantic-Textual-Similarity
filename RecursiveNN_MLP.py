@@ -233,14 +233,20 @@ class rnn_mlp_model(object):
         l_reps = self.get_output_for(inputs1)
         r_reps = self.get_output_for(inputs2)
 
-        return self.cost_function(l_reps, r_reps, targets) + self.param_error
+        mul_reps = l_reps * r_reps
+        sub_reps = np.abs(l_reps - r_reps)
+
+        return self.cost_function(mul_reps, sub_reps, targets) + self.param_error
 
     def predict(self, inputs1, inputs2, targets):
 
         l_reps = self.get_output_for(inputs1)
         r_reps = self.get_output_for(inputs2)
 
-        err, pred = self.val_fn(l_reps,r_reps, targets)
+        mul_reps = l_reps * r_reps
+        sub_reps = np.abs(l_reps - r_reps)
+
+        err, pred = self.val_fn(mul_reps,sub_reps, targets)
 
         return err, pred
 
@@ -439,22 +445,23 @@ if __name__ == '__main__':
         for batch in iterate_minibatches(X1_train, X2_train, Y_train, scores_train, args.minibatch, shuffle=True):
             inputs1, inputs2, targets, _ = batch
             cost = model.forwardProp(inputs1, inputs2, targets)
-            gparams = [T.grad(cost, param) for param in model.stack]
 
-            updates = [(param, param - args.step * gtheta) for param, gtheta in zip(model.stack, gparams)]
+            if args.optimizer == "adagrad":
 
-            """
-            updates = sgd_updates_adagrad(model.stack, cost)
+                updates = sgd_updates_adagrad(model.stack, cost)
 
-            for key, value in updates.iteritems():
-                tmp_new = value.eval({})
-                key.set_value(tmp_new)
-            """
-            
-            for e in updates:
-                tmp_new = e[1].eval({})
-                e[0].set_value(tmp_new)
-            
+                for key, value in updates.iteritems():
+                    tmp_new = value.eval({})
+                    key.set_value(tmp_new)
+
+            elif args.optimizer == "sgd":
+                
+                gparams = [T.grad(cost, param) for param in model.stack]
+                updates = [(param, param - args.step * gtheta) for param, gtheta in zip(model.stack, gparams)]
+                for e in updates:
+                    tmp_new = e[1].eval({})
+                    e[0].set_value(tmp_new)
+                
             train_err += cost.eval({})
             train_batches += 1
             cost = 0.0
