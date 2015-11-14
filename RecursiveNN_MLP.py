@@ -114,7 +114,7 @@ class rnn_mlp_model(object):
             + (self.W_out_mlp ** 2).sum() + (self.b_out_mlp ** 2).sum()
         )
 
-        self.lambda_const = 0.01 
+        self.lambda_const = 0.0001
         self.param_error = self.lambda_const * (self.L2_sqr_rnn + self.L2_sqr_mlp)
 
 
