@@ -70,6 +70,68 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, batchsize, shuffle=Fa
             excerpt = slice(start_idx, start_idx + batchsize)
         yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt]
 
+def build_network_2(args, maxlen=30):
+
+    input_shape=(maxlen, args.wvecDim)
+
+    print("Building model and compiling functions...")
+
+    l_lstm_1 = keras.models.Sequential()
+    l_lstm_1.add(keras.layers.recurrent.LSTM(output_dim=args.wvecDim, 
+        return_sequences=True, input_shape=input_shape))
+    #l_lstm_1.add(keras.layers.core.Flatten())
+
+    l_lstm_2 = keras.models.Sequential()
+    l_lstm_2.add(keras.layers.recurrent.LSTM(output_dim=args.wvecDim, 
+        return_sequences=True, input_shape=input_shape))
+    #l_lstm_2.add(keras.layers.core.Flatten())
+
+    l_mul = keras.models.Sequential()
+    l_mul.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='mul'))
+    #l_mul.add(keras.layers.core.Dense(output_dim=args.wvecDim))
+
+    l_sub = keras.models.Sequential()
+    l_sub.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
+    #l_sub.add(keras.layers.core.Dense(output_dim=args.wvecDim))
+
+    model = keras.models.Sequential()
+    model.add(keras.layers.core.Merge([l_mul, l_sub], mode='sum'))
+    model.add(keras.layers.core.Reshape((1, maxlen, args.wvecDim)))
+
+
+    nb_filters = 32
+    # size of pooling area for max pooling
+    nb_pool = 2
+    # convolution kernel size
+    nb_conv = 3
+
+    model.add(keras.layers.convolutional.Convolution2D(nb_filters, nb_conv, nb_conv,
+                        border_mode='full',
+                        input_shape=(1, maxlen, args.wvecDim)))
+
+    model.add(keras.layers.core.Activation('relu'))
+    model.add(keras.layers.convolutional.Convolution2D(nb_filters, nb_conv, nb_conv))
+    model.add(keras.layers.core.Activation('relu'))
+    model.add(keras.layers.convolutional.MaxPooling2D(pool_size=(nb_pool, nb_pool)))
+    model.add(keras.layers.core.Dropout(0.25))
+
+    model.add(keras.layers.core.Flatten())
+    model.add(keras.layers.core.Dense(128))
+    model.add(keras.layers.core.Activation('relu'))
+    model.add(keras.layers.core.Dropout(0.5))
+    model.add(keras.layers.core.Dense(args.outputDim, init='uniform'))
+    model.add(keras.layers.core.Activation('softmax'))
+
+    #rms = RMSprop()
+    #sgd = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
+    adagrad = keras.optimizers.Adagrad(args.step)
+    model.compile(loss='categorical_crossentropy', optimizer=adagrad)
+
+    #train_fn = model.train_on_batch
+    #test_fn = model.test_on_batch 
+    #return train_fn, test_fn
+    return model
+
 def build_network_0(args, maxlen=30):
 
     print("Building model 0 and compiling functions...")
@@ -213,7 +275,7 @@ if __name__ == '__main__':
     X1_dev, X2_dev, Y_dev, scores_dev = load_data(devTrees, tr, maxlen, args)
     X1_test, X2_test, Y_test, scores_test = load_data(testTrees, tr, maxlen, args)
 
-    model = build_network_0(args, maxlen)
+    model = build_network_2(args, maxlen)
 
     print("Starting training...")
     best_dev_score = .0
