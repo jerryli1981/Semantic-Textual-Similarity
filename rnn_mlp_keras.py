@@ -14,7 +14,7 @@ import keras
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Activation, Merge, TimeDistributedMerge, TimeDistributedDense
 from keras.layers.core import Flatten
-from keras.optimizers import SGD, Adam, RMSprop, Adagrad
+from keras.optimizers import SGD, Adam, RMSprop, Adagrad, Adadelta
 from keras.layers.recurrent import LSTM
 
 
@@ -139,7 +139,7 @@ def build_network_2(args, maxlen=30):
     return model
 
 def build_network_0(args, maxlen=30):
-
+    #this is the best model adadelta is the best
     print("Building model 0 and compiling functions...")
 
     """
@@ -187,8 +187,9 @@ def build_network_0(args, maxlen=30):
 
     #rms = RMSprop()
     #sgd = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
-    adagrad = Adagrad(lr=0.01)
-    model.compile(loss='categorical_crossentropy', optimizer=adagrad)
+    #adagrad = Adagrad(lr=0.01)
+    adadelta = Adadelta()
+    model.compile(loss='categorical_crossentropy', optimizer=adadelta)
 
     return model
 
@@ -281,7 +282,7 @@ if __name__ == '__main__':
     X1_dev, X2_dev, Y_dev, scores_dev = load_data(devTrees, tr, maxlen, args)
     X1_test, X2_test, Y_test, scores_test = load_data(testTrees, tr, maxlen, args)
 
-    model = build_network_2(args, maxlen)
+    model = build_network_0(args, maxlen)
 
     print("Starting training...")
     best_dev_score = .0
