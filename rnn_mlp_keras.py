@@ -79,24 +79,24 @@ def build_network_2(args, maxlen=30):
     l_lstm_1 = keras.models.Sequential()
     l_lstm_1.add(keras.layers.recurrent.LSTM(output_dim=args.wvecDim, 
         return_sequences=True, input_shape=input_shape))
-    #l_lstm_1.add(keras.layers.core.Flatten())
+    l_lstm_1.add(keras.layers.core.Flatten())
 
     l_lstm_2 = keras.models.Sequential()
     l_lstm_2.add(keras.layers.recurrent.LSTM(output_dim=args.wvecDim, 
         return_sequences=True, input_shape=input_shape))
-    #l_lstm_2.add(keras.layers.core.Flatten())
+    l_lstm_2.add(keras.layers.core.Flatten())
 
     l_mul = keras.models.Sequential()
     l_mul.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='mul'))
-    #l_mul.add(keras.layers.core.Dense(output_dim=args.wvecDim))
+    l_mul.add(keras.layers.core.Dense(output_dim=args.wvecDim*10))
 
     l_sub = keras.models.Sequential()
     l_sub.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
-    #l_sub.add(keras.layers.core.Dense(output_dim=args.wvecDim))
+    l_sub.add(keras.layers.core.Dense(output_dim=args.wvecDim*10))
 
     model = keras.models.Sequential()
     model.add(keras.layers.core.Merge([l_mul, l_sub], mode='sum'))
-    model.add(keras.layers.core.Reshape((1, maxlen, args.wvecDim)))
+    model.add(keras.layers.core.Reshape((10, args.wvecDim)))
 
 
     nb_filters = 32
@@ -104,7 +104,7 @@ def build_network_2(args, maxlen=30):
     nb_pool = 2
     # convolution kernel size
     nb_conv = 3
-
+    """
     model.add(keras.layers.convolutional.Convolution2D(nb_filters, nb_conv, nb_conv,
                         border_mode='full',
                         input_shape=(1, maxlen, args.wvecDim)))
@@ -114,9 +114,14 @@ def build_network_2(args, maxlen=30):
     model.add(keras.layers.core.Activation('relu'))
     model.add(keras.layers.convolutional.MaxPooling2D(pool_size=(nb_pool, nb_pool)))
     model.add(keras.layers.core.Dropout(0.25))
+    """
+    model.add(keras.layers.convolutional.Convolution1D(nb_filter=32, filter_length=2))
+    model.add(keras.layers.core.Activation('relu'))
+    model.add(keras.layers.core.Dropout(0.25))
+
 
     model.add(keras.layers.core.Flatten())
-    model.add(keras.layers.core.Dense(128))
+    model.add(keras.layers.core.Dense(50))
     model.add(keras.layers.core.Activation('relu'))
     model.add(keras.layers.core.Dropout(0.5))
     model.add(keras.layers.core.Dense(args.outputDim, init='uniform'))
@@ -124,8 +129,9 @@ def build_network_2(args, maxlen=30):
 
     #rms = RMSprop()
     #sgd = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
-    adagrad = keras.optimizers.Adagrad(args.step)
-    model.compile(loss='categorical_crossentropy', optimizer=adagrad)
+    #adagrad = keras.optimizers.Adagrad(lr=0.05)
+    adadelta = keras.optimizers.Adadelta(lr=2.0)
+    model.compile(loss='categorical_crossentropy', optimizer=adadelta)
 
     #train_fn = model.train_on_batch
     #test_fn = model.test_on_batch 
