@@ -78,30 +78,25 @@ def build_network(args,maxlen=36):
 
     l_lstm_1 = keras.models.Sequential()
     l_lstm_1.add(keras.layers.recurrent.LSTM(output_dim=args.wvecDim, 
-        return_sequences=True, input_shape=input_shape))
-    l_lstm_1.add(keras.layers.core.Flatten())
+        return_sequences=False, input_shape=input_shape))
+
 
     l_lstm_2 = keras.models.Sequential()
     l_lstm_2.add(keras.layers.recurrent.LSTM(output_dim=args.wvecDim, 
-        return_sequences=True, input_shape=input_shape))
-    l_lstm_2.add(keras.layers.core.Flatten())
+        return_sequences=False, input_shape=input_shape))
+
 
     l_mul = keras.models.Sequential()
     l_mul.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='mul'))
-    l_mul.add(keras.layers.core.Dense(output_dim=args.wvecDim*10))
+    l_mul.add(keras.layers.core.Dense(output_dim=args.hiddenDim))
 
     l_sub = keras.models.Sequential()
     l_sub.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
-    l_sub.add(keras.layers.core.Dense(output_dim=args.wvecDim*10))
+    l_sub.add(keras.layers.core.Dense(output_dim=args.hiddenDim))
 
     model = keras.models.Sequential()
     model.add(keras.layers.core.Merge([l_mul, l_sub], mode='sum'))
-    model.add(keras.layers.core.Reshape((10, args.wvecDim)))
-   
-    model.add(keras.layers.core.Flatten())
-    model.add(keras.layers.core.Dense(100))
-    model.add(keras.layers.core.Activation('relu'))
-    model.add(keras.layers.core.Dropout(0.5))
+    model.add(keras.layers.core.Activation('sigmoid'))
 
     if args.task=="sts":
         model.add(keras.layers.core.Dense(args.rangeScores, init='uniform'))
@@ -112,13 +107,13 @@ def build_network(args,maxlen=36):
 
 
     if args.optimizer == "sgd":
-        optimizer = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
+        optimizer = keras.optimizers.SGD(lr=args.step, decay=1e-6, mementum=0.9, nesterov=True)
     elif args.optimizer == "adagrad":
         optimizer = keras.optimizers.Adagrad(args.step)
     elif args.optimizer == "adadelta":
-        optimizer = keras.optimizers.Adadelta()
+        optimizer = keras.optimizers.Adadelta(lr=args.step)
     elif args.optimizer == "rms":
-        optimizer = keras.optimizers.RMSprop()
+        optimizer = keras.optimizers.RMSprop(lr=args.step)
     else:
         raise "Need set optimizer correctly"
 
