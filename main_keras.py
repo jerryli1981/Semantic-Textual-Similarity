@@ -110,11 +110,19 @@ def build_network(args,maxlen=36):
 
     model.add(keras.layers.core.Activation('softmax'))
 
-    #rms = keras.optimizers.RMSprop()
-    #sgd = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
-    #adagrad = keras.optimizers.Adagrad(args.step)
-    adadelta = keras.optimizers.Adadelta()
-    model.compile(loss='categorical_crossentropy', optimizer=adadelta)
+
+    if args.optimizer == "sgd":
+        optimizer = SGD(lr=0.1, decay=1e-6, mementum=0.9, nesterov=True)
+    elif args.optimizer == "adagrad":
+        optimizer = keras.optimizers.Adagrad(args.step)
+    elif args.optimizer == "adadelta":
+        optimizer = keras.optimizers.Adadelta()
+    elif args.optimizer == "rms":
+        optimizer = keras.optimizers.RMSprop()
+    else:
+        raise "Need set optimizer correctly"
+
+    model.compile(loss='categorical_crossentropy', optimizer=optimizer)
 
     train_fn = model.train_on_batch
     val_fn = model.test_on_batch 
