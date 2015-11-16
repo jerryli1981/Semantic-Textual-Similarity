@@ -72,6 +72,9 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsiz
 
 def build_network(args,maxlen=36):
 
+
+    from keras.regularizers import l2
+
     input_shape=(maxlen, args.wvecDim)
 
     print("Building model and compiling functions...")
@@ -88,18 +91,19 @@ def build_network(args,maxlen=36):
 
     l_mul = keras.models.Sequential()
     l_mul.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='mul'))
-    l_mul.add(keras.layers.core.Dense(output_dim=args.hiddenDim))
+    l_mul.add(keras.layers.core.Dense(output_dim=args.hiddenDim, W_regularizer=l2(0.01)))
 
     l_sub = keras.models.Sequential()
     l_sub.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
-    l_sub.add(keras.layers.core.Dense(output_dim=args.hiddenDim))
+    l_sub.add(keras.layers.core.Dense(output_dim=args.hiddenDim, W_regularizer=l2(0.01)))
 
     model = keras.models.Sequential()
     model.add(keras.layers.core.Merge([l_mul, l_sub], mode='sum'))
     model.add(keras.layers.core.Activation('sigmoid'))
 
+    
     if args.task=="sts":
-        model.add(keras.layers.core.Dense(args.rangeScores, init='uniform'))
+        model.add(keras.layers.core.Dense(args.rangeScores, init='uniform', W_regularizer=l2(0.01)))
     elif args.task == "ent":
         model.add(keras.layers.core.Dense(args.numLabels, init='uniform'))
 

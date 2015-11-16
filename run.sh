@@ -7,12 +7,12 @@ set -x
 
 # training params
 epochs=200
-step=0.01
+step=0.05
 numLabels=3
 rangeScores=5
 hiddenDim=100
 wvecDim=300
-miniBatch=128
+miniBatch=25
 mlpActivation=sigmoid
 optimizer=adagrad
 task=sts #ent
