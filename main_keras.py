@@ -72,7 +72,7 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsiz
 
 def build_network(args,maxlen=36):
 
-    from keras.regularizers import l2
+    from keras.regularizers import l2,activity_l2
     from keras.models import Sequential
     from keras.layers.core import Dense, Dropout, Activation, Merge, TimeDistributedMerge, TimeDistributedDense
     from keras.layers.core import Flatten
@@ -105,22 +105,22 @@ def build_network(args,maxlen=36):
     model.add(Activation('sigmoid'))
 
     if args.task=="sts":
-        model.add(keras.layers.core.Dense(args.rangeScores, init='uniform'))
+        model.add(Dense(args.rangeScores, init='uniform'))
     elif args.task == "ent":
-        model.add(keras.layers.core.Dense(args.numLabels, init='uniform'))
+        model.add(Dense(args.numLabels, init='uniform'))
 
 
-    model.add(keras.layers.core.Activation('softmax'))
+    model.add(Activation('softmax'))
 
 
     if args.optimizer == "sgd":
-        optimizer = keras.optimizers.SGD(lr=args.step, decay=1e-6, mementum=0.9, nesterov=True)
+        optimizer = SGD(lr=args.step, decay=1e-6, mementum=0.9, nesterov=True)
     elif args.optimizer == "adagrad":
-        optimizer = keras.optimizers.Adagrad(args.step)
+        optimizer = Adagrad(args.step)
     elif args.optimizer == "adadelta":
-        optimizer = keras.optimizers.Adadelta(lr=args.step)
+        optimizer = Adadelta(lr=args.step)
     elif args.optimizer == "rms":
-        optimizer = keras.optimizers.RMSprop(lr=args.step)
+        optimizer = RMSprop(lr=args.step)
     else:
         raise "Need set optimizer correctly"
 
