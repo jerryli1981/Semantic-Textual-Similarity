@@ -238,30 +238,33 @@ if __name__ == '__main__':
     X1_dev, X2_dev, Y_dev, scores_dev = load_data(devTrees, tr, args)
     X1_test, X2_test, Y_test, scores_test = load_data(testTrees, tr, args)
 
-    # Prepare Theano variables for inputs and targets
     input1_var = T.tensor3('inputs_1')
     input2_var = T.tensor3('inputs_2')
     target_var = T.fmatrix('targets')
 
-    # Create neural network model (depending on first command line parameter)
     network = build_network(args, input1_var, input2_var)
 
-    # Create a loss expression for training, i.e., a scalar objective we want
-    # to minimize (for our multi-class problem, it is the cross-entropy loss):
+
     prediction = lasagne.layers.get_output(network)
     loss = lasagne.objectives.categorical_crossentropy(prediction, target_var)
     loss = loss.mean()
-    # We could add some weight decay as well here, see lasagne.regularization.
 
-    # Create update expressions for training, i.e., how to modify the
-    # parameters at each training step. Here, we'll use Stochastic Gradient
-    # Descent (SGD) with Nesterov momentum, but Lasagne offers plenty more.
     params = lasagne.layers.get_all_params(network, trainable=True)
 
-    #updates = lasagne.updates.nesterov_momentum(
-            #loss, params, learning_rate=0.01, momentum=0.9)
+    if args.optimizer == "sgd":
+        updates = lasagne.updates.sgd(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adagrad":
+        updates = lasagne.updates.adagrad(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adadelta":
+        updates = lasagne.updates.adadelta(loss, params, learning_rate=args.step)
+    elif args.optimizer == "nesterov":
+        updates = lasagne.updates.nesterov_momentum(loss, params, learning_rate=args.step)
+    elif args.optimizer == "rms":
+        updates = lasagne.updates.rmsprop(loss, params, learning_rate=args.step)
+    else:
+        raise "Need set optimizer correctly"
+ 
 
-    updates = lasagne.updates.adagrad(loss, params, 0.01)
     # Create a loss expression for validation/testing. The crucial difference
     # here is that we do a deterministic forward pass through the network,
     # disabling dropout layers.

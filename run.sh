@@ -6,7 +6,7 @@ set -x
 ###################
 
 # training params
-epochs=100
+epochs=200
 step=0.01
 numLabels=5
 hiddenDim=100
