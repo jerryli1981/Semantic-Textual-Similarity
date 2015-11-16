@@ -20,16 +20,13 @@ class Node:
 
 class DTree:
 
-    def __init__(self, parse_result, label=None, score=None):
+    def __init__(self, parse_result):
 
         self.deps = parse_result["deps_ccTree"]
 
         #use lemmas instead of toks 
         self.lemmas = parse_result["lemmas"]
             
-        self.label = label
-        self.score = score
-
         # store tree as adjacent list
         self.nodes = []
         for tok in self.lemmas:
@@ -238,9 +235,8 @@ def buildWordRelMap(train=None, dev=None, test=None):
                 if index %1000 == 0 :
                     print index
                 first_parse, second_parse = datum["parse"]
-                score = float(datum["score"])
-                first_depTree = DTree(first_parse, score = score)
-                second_depTree = DTree(second_parse,score = score)
+                first_depTree = DTree(first_parse)
+                second_depTree = DTree(second_parse)
                 trees.append((first_depTree, second_depTree))
     if dev != None:
         with open(dev,'r') as fid:
@@ -249,9 +245,8 @@ def buildWordRelMap(train=None, dev=None, test=None):
                 if index %1000 == 0 :
                     print index
                 first_parse, second_parse = datum["parse"]
-                score = float(datum["score"])
-                first_depTree = DTree(first_parse, score = score)
-                second_depTree = DTree(second_parse,score = score)
+                first_depTree = DTree(first_parse)
+                second_depTree = DTree(second_parse)
                 trees.append((first_depTree, second_depTree))
 
     if test != None:
@@ -261,9 +256,8 @@ def buildWordRelMap(train=None, dev=None, test=None):
                 if index %1000 == 0 :
                     print index
                 first_parse, second_parse = datum["parse"]
-                score = float(datum["score"])
-                first_depTree = DTree(first_parse, score = score)
-                second_depTree = DTree(second_parse,score = score)
+                first_depTree = DTree(first_parse)
+                second_depTree = DTree(second_parse)
                 trees.append((first_depTree, second_depTree))
     
     print "Counting words to give each word an index.."
@@ -310,7 +304,7 @@ def build_word2Vector_glove():
     import gzip
     vocab = loadWordMap()
     word_vecs = {}
-    with gzip.open("glove.6B.300d.txt.gz", "rb") as f:
+    with gzip.open("/Users/peng/Develops/Semantic-Textual-Similarity/glove.6B.300d.txt.gz", "rb") as f:
         for line in f:
            toks = line.split(' ')
            word = toks[0]
@@ -357,6 +351,7 @@ def loadTrees(dataSet='train', merged=False):
     import cPickle as pickle
     wordMap = loadWordMap()
     relMap = loadRelMap()
+    labelIdx_m = {"NEUTRAL":2, "ENTAILMENT":1, "CONTRADICTION":0}
     
     file = dataSet+'_dataset'
 
@@ -371,20 +366,21 @@ def loadTrees(dataSet='train', merged=False):
             first_parse, second_parse = datum["parse"]
 
             score = float(datum["score"])
-            first_depTree = DTree(first_parse, score = score)
-            second_depTree = DTree(second_parse,score = score)
+            label = labelIdx_m[datum["label"]]
+            first_depTree = DTree(first_parse)
+            second_depTree = DTree(second_parse)
             if merged:
                 mergedTree, isDag = first_depTree.mergeWith(second_depTree)
                 if not isDag:
                     #print "merge is not dag"
                     continue
-                trees.append((score, [mergedTree])) 
+                trees.append((label, score, mergedTree)) 
             else:
                 if first_depTree.is_dag and second_depTree.is_dag:
-                    trees.append((score, [first_depTree, second_depTree])) 
+                    trees.append((label, score, first_depTree, second_depTree)) 
 
     if merged:
-        for score, [tree] in trees:
+        for label, score, tree in trees:
             for node in tree.nodes:
                 if node.word not in wordMap:
                     node.index = wordMap[UNK]
@@ -399,7 +395,7 @@ def loadTrees(dataSet='train', merged=False):
                         rel.index = relMap[rel.mention.split("_")[0]]
     else:
 
-        for score, [first_tree, second_tree] in trees:
+        for label, score, first_tree, second_tree in trees:
             for node in first_tree.nodes:
                 if node.word not in wordMap:
                     node.index = wordMap[UNK]
@@ -427,15 +423,3 @@ def loadTrees(dataSet='train', merged=False):
                         rel.index = relMap[rel.mention.split("_")[0]]
 
     return trees
-
-
-if __name__=='__main__':
-
-    _Debug_ = False
-    if _Debug_:
-        import pdb
-        pdb.set_trace()
-
-    buildWordRelMap("train_dataset","dev_dataset")
-
-    build_word2Vector_glove()

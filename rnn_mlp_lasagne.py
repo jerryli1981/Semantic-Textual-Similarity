@@ -8,7 +8,8 @@ import theano.tensor as T
 
 from scipy.stats import pearsonr
 
-sys.path.append('../Lasagne')
+sys.path.insert(0, os.path.abspath('../Lasagne'))
+#sys.path.append('../Lasagne')
 
 import lasagne
 
@@ -108,13 +109,12 @@ def load_data_matrix(data, args, seq_len=36, n_children=6, unfinished_flag=-2):
       
     return X1, X2, Y, scores, input_shape
 
-def load_data(data, dep_tree, args):
+def load_data(data, wordEmbeddings, args):
 
-    Y = np.zeros((len(data), args.outputDim+1), dtype=np.float32)
+    Y_scores_pred = np.zeros((len(data), args.rangeScores+1), dtype=np.float32)
 
     maxlen = 0
-    for i, (score, item) in enumerate(data):
-        l_t, r_t = item
+    for i, (label, score, l_t, r_t) in enumerate(data):
 
         max_ = max(len(l_t.nodes), len(r_t.nodes))
         if maxlen < max_:
@@ -124,37 +124,34 @@ def load_data(data, dep_tree, args):
         ceil = np.ceil(sim)
         floor = np.floor(sim)
         if ceil == floor:
-            Y[i, floor] = 1
+            Y_scores_pred[i, floor] = 1
         else:
-            Y[i, floor] = ceil-sim 
-            Y[i, ceil] = sim-floor
+            Y_scores_pred[i, floor] = ceil-sim 
+            Y_scores_pred[i, ceil] = sim-floor
 
-    Y = Y[:, 1:]
-
-
-    word2vecs = dep_tree.loadWord2VecMap()
-
-    L = word2vecs[:args.wvecDim, :]
+    Y_scores_pred = Y_scores_pred[:, 1:]
 
     X1 = np.zeros((len(data), maxlen, args.wvecDim), dtype=np.float32)
     X2 = np.zeros((len(data), maxlen, args.wvecDim), dtype=np.float32)
 
-    scores = np.zeros((len(data)), dtype=np.float32)
+    Y_labels = np.zeros((len(data)), dtype=np.int32)
+    Y_scores = np.zeros((len(data)), dtype=np.float32)
 
-    for i, (score, item) in enumerate(data):
-        first_depTree, second_depTree = item
+    for i, (label, score, l_tree, r_tree) in enumerate(data):
 
-        for j, Node in enumerate(first_depTree.nodes):
-            X1[i, j] =  L[:, Node.index]
+        for j, Node in enumerate(l_tree.nodes):
+            X1[i, j] =  wordEmbeddings[:, Node.index]
 
-        for k, Node in enumerate(second_depTree.nodes):
-            X2[i, k] =  L[:, Node.index]
+        for k, Node in enumerate(r_tree.nodes):
+            X2[i, k] =  wordEmbeddings[:, Node.index]
 
-        scores[i] = score
+        Y_labels[i] = label
+        Y_scores[i] = score
         
-    return X1, X2, Y, scores
+    return X1, X2, Y_labels, Y_scores, Y_scores_pred
 
-def build_network(args, input1_var=None, input2_var=None):
+
+def build_network(args, input1_var=None, input2_var=None, target_var=None):
 
     print("Building model 0 and compiling functions...")
 
@@ -168,7 +165,6 @@ def build_network(args, input1_var=None, input2_var=None):
     l_forward_1 = lasagne.layers.LSTMLayer(
         l1_in, num_units=args.wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
-
 
     l_forward_2 = lasagne.layers.LSTMLayer(
         l2_in, args.wvecDim, grad_clipping=GRAD_CLIP,
@@ -188,66 +184,23 @@ def build_network(args, input1_var=None, input2_var=None):
     joined = lasagne.layers.ElemwiseSumLayer([l12_mul_Dense, l12_sub_Dense])
     l_hid1 = lasagne.layers.NonlinearityLayer(joined, nonlinearity=lasagne.nonlinearities.sigmoid)
 
-    l_out = lasagne.layers.DenseLayer(
-            l_hid1, num_units=args.outputDim,
-            nonlinearity=lasagne.nonlinearities.softmax)
 
-    return l_out
-
-def iterate_minibatches(inputs1, inputs2, targets, scores, batchsize, shuffle=False):
-    assert len(inputs1) == len(targets)
-    if shuffle:
-        indices = np.arange(len(inputs1))
-        np.random.shuffle(indices)
-    for start_idx in range(0, len(inputs1) - batchsize + 1, batchsize):
-        if shuffle:
-            excerpt = indices[start_idx:start_idx + batchsize]
-        else:
-            excerpt = slice(start_idx, start_idx + batchsize)
-        yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt]
-
-
-if __name__ == '__main__':
-
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Usage")
-    parser.add_argument("--minibatch",dest="minibatch",type=int,default=30)
-    parser.add_argument("--optimizer",dest="optimizer",type=str,default=None)
-    parser.add_argument("--epochs",dest="epochs",type=int,default=50)
-    parser.add_argument("--step",dest="step",type=float,default=1e-2)
-    parser.add_argument("--outputDim",dest="outputDim",type=int,default=5)
-    parser.add_argument("--hiddenDim",dest="hiddenDim",type=int,default=50)
-    parser.add_argument("--wvecDim",dest="wvecDim",type=int,default=30)
-    parser.add_argument("--repModel",dest="repModel",type=str,default="lstm")
-    args = parser.parse_args()
-
-
-    # Load the dataset
-    print("Loading data...")
-    import dependency_tree as tr     
-    trainTrees = tr.loadTrees("train")
-    devTrees = tr.loadTrees("dev")
-    testTrees = tr.loadTrees("test")
-    
-    print "train number %d"%len(trainTrees)
-    print "dev number %d"%len(devTrees)
-    print "test number %d"%len(testTrees)
-    
-    X1_train, X2_train, Y_train, scores_train = load_data(trainTrees, tr, args)
-    X1_dev, X2_dev, Y_dev, scores_dev = load_data(devTrees, tr, args)
-    X1_test, X2_test, Y_test, scores_test = load_data(testTrees, tr, args)
-
-    input1_var = T.tensor3('inputs_1')
-    input2_var = T.tensor3('inputs_2')
-    target_var = T.fmatrix('targets')
-
-    network = build_network(args, input1_var, input2_var)
+    if args.task == "sts":
+        network = lasagne.layers.DenseLayer(
+                l_hid1, num_units=args.rangeScores,
+                nonlinearity=lasagne.nonlinearities.softmax)
+    elif args.task == "ent":
+        network = lasagne.layers.DenseLayer(
+                l_hid1, num_units=args.numLabels,
+                nonlinearity=lasagne.nonlinearities.softmax)
+    else:
+        raise "set task"
 
 
     prediction = lasagne.layers.get_output(network)
     loss = lasagne.objectives.categorical_crossentropy(prediction, target_var)
     loss = loss.mean()
+
 
     params = lasagne.layers.get_all_params(network, trainable=True)
 
@@ -265,84 +218,195 @@ if __name__ == '__main__':
         raise "Need set optimizer correctly"
  
 
-    # Create a loss expression for validation/testing. The crucial difference
-    # here is that we do a deterministic forward pass through the network,
-    # disabling dropout layers.
     test_prediction = lasagne.layers.get_output(network, deterministic=True)
     test_loss = lasagne.objectives.categorical_crossentropy(test_prediction,
                                                             target_var)
     test_loss = test_loss.mean()
-    # As a bonus, also create an expression for the classification accuracy:
 
-    # Compile a function performing a training step on a mini-batch (by giving
-    # the updates dictionary) and returning the corresponding training loss:
-    train_fn = theano.function([input1_var, input2_var, target_var], loss, updates=updates, allow_input_downcast=True)
+    train_fn = theano.function([input1_var, input2_var, target_var], loss, 
+        updates=updates, allow_input_downcast=True)
 
-    # Compile a second function computing the validation loss and accuracy:
-    val_fn = theano.function([input1_var, input2_var, target_var], [test_loss, test_prediction], allow_input_downcast=True)
+    if args.task == "sts":
+        val_fn = theano.function([input1_var, input2_var, target_var], 
+            [test_loss, test_prediction], allow_input_downcast=True)
 
-    # Finally, launch the training loop.
+    elif args.task == "ent":
+        test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+
+        val_fn = theano.function([input1_var, input2_var, target_var], 
+            [test_loss, test_acc], allow_input_downcast=True)
+
+    return train_fn, val_fn
+
+def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsize, shuffle=False):
+    assert len(inputs1) == len(targets)
+    if shuffle:
+        indices = np.arange(len(inputs1))
+        np.random.shuffle(indices)
+    for start_idx in range(0, len(inputs1) - batchsize + 1, batchsize):
+        if shuffle:
+            excerpt = indices[start_idx:start_idx + batchsize]
+        else:
+            excerpt = slice(start_idx, start_idx + batchsize)
+        yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt], scores_pred[excerpt]
+
+
+if __name__ == '__main__':
+
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Usage")
+
+    parser.add_argument("--minibatch",dest="minibatch",type=int,default=30)
+    parser.add_argument("--optimizer",dest="optimizer",type=str,default="sgd")
+    parser.add_argument("--epochs",dest="epochs",type=int,default=50)
+    parser.add_argument("--step",dest="step",type=float,default=0.01)
+    parser.add_argument("--rangeScores",dest="rangeScores",type=int,default=5)
+    parser.add_argument("--numLabels",dest="numLabels",type=int,default=3)
+    parser.add_argument("--hiddenDim",dest="hiddenDim",type=int,default=50)
+    parser.add_argument("--wvecDim",dest="wvecDim",type=int,default=30)
+    parser.add_argument("--mlpActivation",dest="mlpActivation",type=str,default="sigmoid")
+    parser.add_argument("--task",dest="task",type=str,default=None)
+    args = parser.parse_args()
+
+
+    # Load the dataset
+    print("Loading data...")
+    import dependency_tree as tr     
+    trainTrees = tr.loadTrees("train")
+    devTrees = tr.loadTrees("dev")
+    testTrees = tr.loadTrees("test")
+    
+    print "train number %d"%len(trainTrees)
+    print "dev number %d"%len(devTrees)
+    print "test number %d"%len(testTrees)
+
+    wordEmbeddings = tr.loadWord2VecMap()[:args.wvecDim, :]
+    
+    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = load_data(trainTrees, wordEmbeddings, args)
+    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = load_data(devTrees, wordEmbeddings, args)
+    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = load_data(testTrees, wordEmbeddings, args)
+
+    input1_var = T.tensor3('inputs_1')
+    input2_var = T.tensor3('inputs_2')
+
+    if args.task=="sts":
+        target_var = T.fmatrix('targets')
+    elif args.task=="ent":
+        target_var = T.ivector('targets')
+
+    train_fn, val_fn = build_network(args, input1_var, input2_var, target_var)
+
     print("Starting training...")
-    # We iterate over epochs:
+    best_val_acc = 0
+    best_val_pearson = 0
     for epoch in range(args.epochs):
-        # In each epoch, we do a full pass over the training data:
         train_err = 0
         train_batches = 0
         start_time = time.time()
-        for batch in iterate_minibatches(X1_train, X2_train, Y_train, scores_train, args.minibatch, shuffle=True):
-            inputs1, inputs2, targets, _ = batch
-            train_err += train_fn(inputs1, inputs2, targets)
-            train_batches += 1
+        for batch in iterate_minibatches(X1_train, X2_train, Y_labels_train,
+            Y_scores_train, Y_scores_pred_train, args.minibatch, shuffle=True):
 
-        # And a full pass over the validation data:
-        
+            inputs1, inputs2, labels, scores, scores_pred = batch
+
+            if args.task == "sts":
+                train_err += train_fn(inputs1, inputs2, scores_pred)
+            elif args.task == "ent":
+                train_err += train_fn(inputs1, inputs2, labels)
+            else:
+                raise "task need to be set"
+
+            train_batches += 1
+ 
         val_err = 0
+        val_acc = 0
         val_batches = 0
         val_pearson = 0
-        for batch in iterate_minibatches(X1_dev, X2_dev, Y_dev, scores_dev, 500, shuffle=False):
-            inputs1, inputs2, targets, scores = batch
-            err, preds = val_fn(inputs1, inputs2, targets)
+
+        for batch in iterate_minibatches(X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, 
+            Y_scores_pred_dev, len(X1_dev), shuffle=False):
+
+            inputs1, inputs2, labels, scores, scores_pred = batch
+
+            if args.task == "sts":
+
+                err, preds = val_fn(inputs1, inputs2, scores_pred)
+                predictScores = preds.dot(np.array([1,2,3,4,5]))
+                guesses = predictScores.tolist()
+                scores = scores.tolist()
+                pearson_score = pearsonr(scores,guesses)[0]
+                val_pearson += pearson_score 
+
+            elif args.task == "ent":
+                err, acc = val_fn(inputs1, inputs2, labels)
+                val_acc += acc
+
             val_err += err
+            
             val_batches += 1
 
-            predictScores = preds.dot(np.array([1,2,3,4,5]))
-            guesses = predictScores.tolist()
-            scores = scores.tolist()
-            pearson_score = pearsonr(scores,guesses)[0]
-            val_pearson += pearson_score 
-
-        
-        # Then we print the results for this epoch:
+            
         print("Epoch {} of {} took {:.3f}s".format(
             epoch + 1, args.epochs, time.time() - start_time))
         print("  training loss:\t\t{:.6f}".format(train_err / train_batches))
         print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
 
 
-        print("  validation pearson:\t\t{:.2f} %".format(
-            val_pearson / val_batches * 100))
+        if args.task == "sts":
+            val_score = val_pearson / val_batches * 100
+            print("  validation pearson:\t\t{:.2f} %".format(
+                val_pearson / val_batches * 100))
+            if best_val_pearson < val_score:
+                best_val_pearson = val_score
+
+        elif args.task == "ent":
+            val_score = val_acc / val_batches * 100
+            print("  validation accuracy:\t\t{:.2f} %".format(val_score))
+            if best_val_acc < val_score:
+                best_val_acc = val_score
 
     # After training, we compute and print the test error:
     test_err = 0
+    test_acc = 0
     test_pearson = 0
     test_batches = 0
-    for batch in iterate_minibatches(X1_test, X2_test, Y_test, scores_test, 4500, shuffle=False):
-        inputs1, inputs2, targets, scores = batch
-        err, preds = val_fn(inputs1, inputs2, targets)
-        test_err += err
-        test_batches += 1
+    for batch in iterate_minibatches(X1_test, X2_test, Y_labels_test, 
+        Y_scores_test, Y_scores_pred_test, len(X1_test), shuffle=False):
 
-        predictScores = preds.dot(np.array([1,2,3,4,5]))
-        guesses = predictScores.tolist()
-        scores = scores.tolist()
-        pearson_score = pearsonr(scores,guesses)[0]
-        test_pearson += pearson_score 
+        inputs1, inputs2, labels, scores, scores_pred = batch
+
+        if args.task == "sts":
+
+            err, preds = val_fn(inputs1, inputs2, scores_pred)
+            predictScores = preds.dot(np.array([1,2,3,4,5]))
+            guesses = predictScores.tolist()
+            scores = scores.tolist()
+            pearson_score = pearsonr(scores,guesses)[0]
+            test_pearson += pearson_score 
+
+        elif args.task == "ent":
+            err, acc = val_fn(inputs1, inputs2, labels)
+            test_acc += acc
+
+
+        test_err += err
+        
+        test_batches += 1
 
 
     print("Final results:")
     print("  test loss:\t\t\t{:.6f}".format(test_err / test_batches))
-    print("  test pearson:\t\t{:.2f} %".format(
-        test_pearson / test_batches * 100))
+
+    if args.task == "sts":
+        print("  Best validate perason:\t\t{:.2f} %".format(best_val_pearson))
+        print("  test pearson:\t\t{:.2f} %".format(
+            test_pearson / test_batches * 100))
+    elif args.task == "ent":
+        print("  Best validate accuracy:\t\t{:.2f} %".format(best_val_acc))
+        print("  test accuracy:\t\t{:.2f} %".format(
+            test_acc / test_batches * 100))
+
+
 
     # Optionally, you could now dump the network weights to a file like this:
     # np.savez('model.npz', *lasagne.layers.get_all_param_values(network))

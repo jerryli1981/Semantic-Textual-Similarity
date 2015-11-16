@@ -8,41 +8,30 @@ set -x
 # training params
 epochs=200
 step=0.01
-numLabels=5
+numLabels=3
+rangeScores=5
 hiddenDim=100
 wvecDim=300
 miniBatch=128
-model=LSTM
+mlpActivation=sigmoid
 optimizer=adagrad
+task=sts #ent
 
 if [ "$1" == "keras" ]
 then
-echo "run rnn_mlp_keras"
-python -u rnn_mlp_keras.py --step $step --repModel $model \
+echo "run keras"
+python -u main_keras.py --task $task --step $step --mlpActivation $mlpActivation \
 				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
-                  				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
+                  			--rangeScores $rangeScores	--numLabels $numLabels\
+                  			--minibatch $miniBatch --wvecDim $wvecDim
 
 elif [ "$1" == "lasagne" ]
 then
-echo "run rnn_mlp_lasagne"
-python -u rnn_mlp_lasagne.py --step $step --repModel $model \
+echo "run lasagne"
+python -u main_lasagne.py --task $task --step $step --mlpActivation $mlpActivation \
 				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
-                  				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
-
-elif [ "$1" == "theano" ]
-then
-echo "run rnn_mlp_theano"
-python -u rnn_mlp_theano.py --step $step --repModel $model \
-				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
-                  				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
-
-elif [ "$1" == "rmlp" ]
-then
-echo "run RecursiveNN_MLP"
-python -u RecursiveNN_MLP.py --step $step --repModel $model \
-				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
-                  				--outputDim $numLabels --minibatch $miniBatch --wvecDim $wvecDim
-
+                  			--rangeScores $rangeScores	--numLabels $numLabels\
+                  			--minibatch $miniBatch --wvecDim $wvecDim
 fi
 
 
