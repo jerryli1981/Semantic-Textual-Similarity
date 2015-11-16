@@ -72,7 +72,6 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsiz
 
 def build_network(args,maxlen=36):
 
-
     from keras.regularizers import l2
     from keras.models import Sequential
     from keras.layers.core import Dense, Dropout, Activation, Merge, TimeDistributedMerge, TimeDistributedDense
@@ -95,42 +94,21 @@ def build_network(args,maxlen=36):
 
     l_mul = Sequential()
     l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
-    l_mul.add(Dense(output_dim=args.wvecDim))
+    l_mul.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
 
     l_sub = Sequential()
     l_sub.add(Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
-    l_sub.add(Dense(output_dim=args.wvecDim))
+    l_sub.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
 
-    """
-    l_lstm_1 = keras.models.Sequential()
-    l_lstm_1.add(keras.layers.recurrent.LSTM(output_dim=args.wvecDim, 
-        return_sequences=False, input_shape=input_shape))
+    model = Sequential()
+    model.add(Merge([l_mul, l_sub], mode='sum'))
+    model.add(Activation('sigmoid'))
 
-
-    l_lstm_2 = keras.models.Sequential()
-    l_lstm_2.add(keras.layers.recurrent.LSTM(output_dim=args.wvecDim, 
-        return_sequences=False, input_shape=input_shape))
-
-
-    l_mul = keras.models.Sequential()
-    l_mul.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='mul'))
-    l_mul.add(keras.layers.core.Dense(output_dim=args.hiddenDim, W_regularizer=l2(0.01)))
-
-    l_sub = keras.models.Sequential()
-    l_sub.add(keras.layers.core.Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
-    l_sub.add(keras.layers.core.Dense(output_dim=args.hiddenDim, W_regularizer=l2(0.01)))
-
-    """
-
-    model = keras.models.Sequential()
-    model.add(keras.layers.core.Merge([l_mul, l_sub], mode='sum'))
-    model.add(keras.layers.core.Activation('sigmoid'))
-
-    
     if args.task=="sts":
         model.add(keras.layers.core.Dense(args.rangeScores, init='uniform'))
     elif args.task == "ent":
         model.add(keras.layers.core.Dense(args.numLabels, init='uniform'))
+
 
     model.add(keras.layers.core.Activation('softmax'))
 
