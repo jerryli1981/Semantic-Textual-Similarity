@@ -198,9 +198,13 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None):
 
 
     prediction = lasagne.layers.get_output(network)
-    loss = lasagne.objectives.categorical_crossentropy(prediction, target_var)
-    loss = loss.mean()
+    loss = T.mean(lasagne.objectives.categorical_crossentropy(prediction, target_var))
 
+    from lasagne.regularization import regularize_layer_params_weighted, l2
+
+    layers = {network: 0.01}
+    l2_penalty = lasagne.regularization.regularize_layer_params_weighted(layers, l2)
+    loss = loss + l2_penalty
 
     params = lasagne.layers.get_all_params(network, trainable=True)
 
