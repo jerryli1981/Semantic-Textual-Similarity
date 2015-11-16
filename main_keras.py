@@ -134,7 +134,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--minibatch",dest="minibatch",type=int,default=30)
     parser.add_argument("--optimizer",dest="optimizer",type=str,default="sgd")
-    parser.add_argument("--epochs",dest="epochs",type=int,default=50)
+    parser.add_argument("--epochs",dest="epochs",type=int,default=5)
     parser.add_argument("--step",dest="step",type=float,default=0.01)
     parser.add_argument("--rangeScores",dest="rangeScores",type=int,default=5)
     parser.add_argument("--numLabels",dest="numLabels",type=int,default=3)
@@ -252,7 +252,7 @@ if __name__ == '__main__':
             test_pearson += pearson_score 
 
         elif args.task == "ent":
-            err, acc = val_fn(inputs1, inputs2, labels, accuracy=True)
+            err, acc = val_fn([inputs1, inputs2], labels, accuracy=True)
             test_acc += acc
 
 
