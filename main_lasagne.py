@@ -115,7 +115,7 @@ def load_data(data, wordEmbeddings, args):
 
     maxlen = 0
     for i, (label, score, l_t, r_t) in enumerate(data):
-
+        
         max_ = max(len(l_t.nodes), len(r_t.nodes))
         if maxlen < max_:
             maxlen = max_
@@ -155,43 +155,69 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None):
 
     print("Building model 0 and compiling functions...")
 
+
+
     l1_in = lasagne.layers.InputLayer((None, None, args.wvecDim),input_var=input1_var)
 
     l2_in = lasagne.layers.InputLayer((None, None, args.wvecDim),input_var=input2_var)
 
     batchsize, seqlen, _ = l1_in.input_var.shape
 
+    
     GRAD_CLIP = args.wvecDim/2
     l_forward_1 = lasagne.layers.LSTMLayer(
         l1_in, num_units=args.wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
+
     l_forward_2 = lasagne.layers.LSTMLayer(
         l2_in, args.wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
-    l_forward_1 = lasagne.layers.SliceLayer(l_forward_1, indices=-1, axis=1)
-    l_forward_2 = lasagne.layers.SliceLayer(l_forward_2, indices=-1, axis=1)
+    #l_forward_1 = lasagne.layers.FlattenLayer(l_forward_1)
+    #l_forward_2 = lasagne.layers.FlattenLayer(l_forward_2)
+
+    #l_forward_1 = lasagne.layers.SliceLayer(l_forward_1, indices=-1, axis=1)
+    #l_forward_2 = lasagne.layers.SliceLayer(l_forward_2, indices=-1, axis=1)
 
     l12_mul = lasagne.layers.ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
     l12_sub = lasagne.layers.ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub)
     l12_sub = lasagne.layers.AbsLayer(l12_sub)
 
-    l12_mul_Dense = lasagne.layers.DenseLayer(l12_mul, num_units=args.hiddenDim, nonlinearity=None, b=None)
+    l12_mul  = lasagne.layers.ReshapeLayer(l12_mul,(-1, args.wvecDim))
+    l12_sub = lasagne.layers.ReshapeLayer(l12_sub,(-1, args.wvecDim))
 
+    l12_mul_Dense = lasagne.layers.DenseLayer(l12_mul, num_units=args.hiddenDim, nonlinearity=None, b=None)
     l12_sub_Dense = lasagne.layers.DenseLayer(l12_sub, num_units=args.hiddenDim, nonlinearity=None, b=None)
 
-    joined = lasagne.layers.ElemwiseSumLayer([l12_mul_Dense, l12_sub_Dense])
-    l_hid1 = lasagne.layers.NonlinearityLayer(joined, nonlinearity=lasagne.nonlinearities.sigmoid)
 
+    l12_mul_Dense  = lasagne.layers.ReshapeLayer(l12_mul_Dense, (batchsize, seqlen, args.hiddenDim))
+    l12_sub_Dense  = lasagne.layers.ReshapeLayer(l12_sub_Dense, (batchsize, seqlen, args.hiddenDim))
+    
+    joined = lasagne.layers.ElemwiseSumLayer([l12_mul_Dense, l12_sub_Dense])
+
+    l_hid = lasagne.layers.NonlinearityLayer(joined, nonlinearity=lasagne.nonlinearities.sigmoid)
 
     if args.task == "sts":
+
+
+        l_hid = lasagne.layers.ReshapeLayer(l_hid,(-1, args.hiddenDim))
+        network = lasagne.layers.DenseLayer(l_hid, num_units=args.rangeScores)
+        network = lasagne.layers.ReshapeLayer(network,(batchsize, seqlen, args.rangeScores))
+
+        network = lasagne.layers.SliceLayer(network, indices=-1, axis=1)
+        
+        network = lasagne.layers.NonlinearityLayer(network, nonlinearity=lasagne.nonlinearities.softmax)
+
+        """
         network = lasagne.layers.DenseLayer(
-                l_hid1, num_units=args.rangeScores,
+                l_hid, num_units=args.rangeScores,
                 nonlinearity=lasagne.nonlinearities.softmax)
+        """
+
     elif args.task == "ent":
         network = lasagne.layers.DenseLayer(
-                l_hid1, num_units=args.numLabels,
+                l_hid, num_units=args.numLabels,
                 nonlinearity=lasagne.nonlinearities.softmax)
     else:
         raise "set task"
@@ -202,9 +228,9 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None):
 
     from lasagne.regularization import regularize_layer_params_weighted, l2
 
-    layers = {network: 0.01}
-    l2_penalty = lasagne.regularization.regularize_layer_params_weighted(layers, l2)
-    loss = loss + l2_penalty
+    #layers = {network: 0.01}
+    #l2_penalty = lasagne.regularization.regularize_layer_params_weighted(layers, l2)
+    #loss = loss + l2_penalty
 
     params = lasagne.layers.get_all_params(network, trainable=True)
 
