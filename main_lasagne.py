@@ -137,13 +137,19 @@ def load_data(data, wordEmbeddings, args, maxlen=36):
     Y_labels = np.zeros((len(data)), dtype=np.int32)
     Y_scores = np.zeros((len(data)), dtype=np.float32)
 
+    #np.random.uniform(-0.25,0.25,k)
+
     for i, (label, score, l_tree, r_tree) in enumerate(data):
 
         for j, Node in enumerate(l_tree.nodes):
             X1[i, j] =  wordEmbeddings[:, Node.index]
+            if j >= len(l_tree.nodes):
+                X1[i, j] =  np.random.uniform(-0.25,0.25, args.wvecDim)
 
         for k, Node in enumerate(r_tree.nodes):
             X2[i, k] =  wordEmbeddings[:, Node.index]
+            if j >= len(r_tree.nodes):
+                X2[i, j] =  np.random.uniform(-0.25,0.25, args.wvecDim)
 
         Y_labels[i] = label
         Y_scores[i] = score
@@ -201,6 +207,8 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None, maxle
     joined = ElemwiseSumLayer([l12_mul_Dense, l12_sub_Dense])
 
     l_hid = NonlinearityLayer(joined, nonlinearity=lasagne.nonlinearities.sigmoid)
+
+    l_hid = DenseLayer(l_hid, num_units=args.hiddenDim/2, nonlinearity=lasagne.nonlinearities.sigmoid)
 
     if args.task == "sts":
 
