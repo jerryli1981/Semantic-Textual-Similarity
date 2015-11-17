@@ -144,7 +144,7 @@ def load_data(data, wordEmbeddings, args, maxlen=36):
         for j, Node in enumerate(l_tree.nodes):
             X1[i, j] =  wordEmbeddings[:, Node.index]
             if j >= len(l_tree.nodes):
-                X1[i, j] =  np.random.uniform(-0.25,0.25, args.wvecDim)
+                X1[i,j] =  np.random.uniform(-0.25,0.25, args.wvecDim)
 
         for k, Node in enumerate(r_tree.nodes):
             X2[i, k] =  wordEmbeddings[:, Node.index]
@@ -162,66 +162,85 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None, maxle
     print("Building model 0 and compiling functions...")
 
     from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer, FlattenLayer,\
-    ElemwiseMergeLayer, AbsLayer,ReshapeLayer,DenseLayer,ElemwiseSumLayer
+    ElemwiseMergeLayer, AbsLayer,ReshapeLayer,DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer
     from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params
 
     l1_in = InputLayer((None, maxlen, args.wvecDim),input_var=input1_var)
 
     l2_in = InputLayer((None, maxlen, args.wvecDim),input_var=input2_var)
 
-    #batchsize, seqlen, _ = l1_in.input_var.shape
+    batchsize, seqlen, _ = l1_in.input_var.shape
 
     GRAD_CLIP = args.wvecDim
 
+    #l1_in = ReshapeLayer(l1_in,(-1, maxlen, args.wvecDim))
     l_forward_1 = LSTMLayer(
         l1_in, num_units=args.wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
+    l_forward_1 = ReshapeLayer(l_forward_1,(batchsize, 1, maxlen, args.wvecDim))
+
+    #l2_in = ReshapeLayer(l2_in,(-1, maxlen, args.wvecDim))
     l_forward_2 = LSTMLayer(
         l2_in, args.wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
+    l_forward_2 = ReshapeLayer(l_forward_2,(batchsize, 1, maxlen, args.wvecDim))
 
-    l_forward_1 = FlattenLayer(l_forward_1)
 
-    l_forward_2 = FlattenLayer(l_forward_2)
+    l_forward_1 = Conv2DLayer(
+            l_forward_1, num_filters=32, filter_size=(5, 5),
+            nonlinearity=lasagne.nonlinearities.rectify,
+            W=lasagne.init.GlorotUniform())
+ 
+    # Max-pooling layer of factor 2 in both dimensions:
+    l_forward_1 = lasagne.layers.MaxPool2DLayer(l_forward_1, pool_size=(2, 2))
 
-    #l_forward_1 = lasagne.layers.SliceLayer(l_forward_1, indices=-1, axis=1)
+    #another con2d
+    l_forward_1 = lasagne.layers.Conv2DLayer(
+            l_forward_1, num_filters=32, filter_size=(5, 5),
+            nonlinearity=lasagne.nonlinearities.rectify)
+    l_forward_1 = lasagne.layers.MaxPool2DLayer(l_forward_1, pool_size=(2, 2))
 
-    #l_forward_2 = lasagne.layers.SliceLayer(l_forward_2, indices=-1, axis=1)
+    # A fully-connected layer of 256 units with 50% dropout on its inputs:
+    l_forward_1 = DenseLayer(
+            lasagne.layers.dropout(l_forward_1, p=.5),
+            num_units=128,
+            nonlinearity=lasagne.nonlinearities.rectify)
+
+    l_forward_2 = Conv2DLayer(
+            l_forward_2, num_filters=32, filter_size=(5, 5),
+            nonlinearity=lasagne.nonlinearities.rectify,
+            W=lasagne.init.GlorotUniform())
+ 
+    # Max-pooling layer of factor 2 in both dimensions:
+    l_forward_2 = lasagne.layers.MaxPool2DLayer(l_forward_2, pool_size=(2, 2))
+
+    #another con2d
+    l_forward_2 = lasagne.layers.Conv2DLayer(
+            l_forward_2, num_filters=32, filter_size=(5, 5),
+            nonlinearity=lasagne.nonlinearities.rectify)
+    l_forward_2 = lasagne.layers.MaxPool2DLayer(l_forward_2, pool_size=(2, 2))
+
+    # A fully-connected layer of 256 units with 50% dropout on its inputs:
+    l_forward_2 = DenseLayer(
+            lasagne.layers.dropout(l_forward_2, p=.5),
+            num_units=128,
+            nonlinearity=lasagne.nonlinearities.rectify)
 
     # elementwisemerge need fix the sequence length
     l12_mul = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
     l12_sub = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub)
     l12_sub = AbsLayer(l12_sub)
 
-    #l12_mul  = ReshapeLayer(l12_mul,(-1, args.wvecDim))
-    #l12_sub = ReshapeLayer(l12_sub,(-1, args.wvecDim))
 
     l12_mul_Dense = DenseLayer(l12_mul, num_units=args.hiddenDim, nonlinearity=None, b=None)
     l12_sub_Dense = DenseLayer(l12_sub, num_units=args.hiddenDim, nonlinearity=None, b=None)
-
-
-    #l12_mul_Dense_r = ReshapeLayer(l12_mul_Dense, (batchsize, seqlen, args.hiddenDim))
-    #l12_sub_Dense_r  = ReshapeLayer(l12_sub_Dense, (batchsize, seqlen, args.hiddenDim))
     
     joined = ElemwiseSumLayer([l12_mul_Dense, l12_sub_Dense])
 
     l_hid = NonlinearityLayer(joined, nonlinearity=lasagne.nonlinearities.sigmoid)
 
-    l_hid = DenseLayer(l_hid, num_units=args.hiddenDim/2, nonlinearity=lasagne.nonlinearities.sigmoid)
-
     if args.task == "sts":
-
-        """
-        l_hid = ReshapeLayer(l_hid,(-1, args.hiddenDim))
-        l_out_Dense = DenseLayer(l_hid, num_units=args.rangeScores)
-        network = ReshapeLayer(l_out_Dense,(batchsize, seqlen, args.rangeScores))
-
-        network = SliceLayer(network, indices=-1, axis=1)
-
-        network = NonlinearityLayer(network, nonlinearity=lasagne.nonlinearities.softmax)
-
-        """
         network = lasagne.layers.DenseLayer(
                 l_hid, num_units=args.rangeScores,
                 nonlinearity=lasagne.nonlinearities.softmax)
@@ -230,9 +249,6 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None, maxle
         network = DenseLayer(
                 l_hid, num_units=args.numLabels,
                 nonlinearity=lasagne.nonlinearities.softmax)
-    else:
-        raise "set task"
-
 
     prediction = lasagne.layers.get_output(network)
     loss = T.mean(lasagne.objectives.categorical_crossentropy(prediction, target_var))
