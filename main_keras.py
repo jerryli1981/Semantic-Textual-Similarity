@@ -83,9 +83,8 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsiz
             excerpt = slice(start_idx, start_idx + batchsize)
         yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt], scores_pred[excerpt]
 
-def build_network(args, wordEmbeddings, maxlen=36):
-
-    
+def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
+ 
     print("Building model and compiling functions...")
     n_symbols = wordEmbeddings.shape[1]
     wordEmbeddings = wordEmbeddings[:args.wvecDim, :]
@@ -93,33 +92,38 @@ def build_network(args, wordEmbeddings, maxlen=36):
     l_lstm_1 = Sequential()
     l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=args.wvecDim, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
-    l_lstm_1.add(LSTM(output_dim=args.wvecDim, return_sequences=False, input_shape=(maxlen, args.wvecDim)))
-    l_lstm_1.add(Dropout(0.5))
+    l_lstm_1.add(LSTM(output_dim=args.wvecDim, return_sequences=False, 
+        input_shape=(maxlen, args.wvecDim)))
+    l_lstm_1.add(Dropout(0.1))
+    l_lstm_1.layers[1].regularizers = [l2(reg)] * 12
+    for i in range(12):    
+        l_lstm_1.layers[1].regularizers[i].set_param(l_lstm_1.layers[1].get_params()[0][i])
 
 
     l_lstm_2 = Sequential()
     l_lstm_2.add(Embedding(input_dim=n_symbols, output_dim=args.wvecDim, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
-    l_lstm_2.add(LSTM(output_dim=args.wvecDim, return_sequences=False, input_shape=(maxlen, args.wvecDim)))
-    l_lstm_2.add(Dropout(0.5))
+    l_lstm_2.add(LSTM(output_dim=args.wvecDim, return_sequences=False, 
+        input_shape=(maxlen, args.wvecDim)))
+    l_lstm_2.add(Dropout(0.1))
+    l_lstm_2.layers[1].regularizers = [l2(reg)] * 12
+    for i in range(12):    
+        l_lstm_2.layers[1].regularizers[i].set_param(l_lstm_2.layers[1].get_params()[0][i])
+
 
     l_mul = Sequential()
     l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
-    #l_mul.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
-    #l_mul.add(Dense(output_dim=args.hiddenDim))
 
     l_sub = Sequential()
     l_sub.add(Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
-    #l_sub.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
-    #l_sub.add(Dense(output_dim=args.hiddenDim))
 
     model = Sequential()
     model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
-    model.add(Dense(output_dim=2*args.wvecDim))
+    model.add(Dense(output_dim=2*args.wvecDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
     model.add(Activation('sigmoid'))
 
     if args.task=="sts":
-        model.add(Dense(args.rangeScores))
+        model.add(Dense(args.rangeScores,W_regularizer=l2(reg), b_regularizer=l2(reg)))
     elif args.task == "ent":
         model.add(Dense(args.numLabels))
 
