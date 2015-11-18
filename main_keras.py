@@ -131,21 +131,21 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
     if args.task=="sts":
         model.add(Dense(args.rangeScores,W_regularizer=l2(reg), b_regularizer=l2(reg)))
     elif args.task == "ent":
-        model.add(Dense(args.numLabels))
+        model.add(Dense(args.numLabels,W_regularizer=l2(reg), b_regularizer=l2(reg)))
 
     model.add(Activation('softmax'))
 
 
     if args.optimizer == "sgd":
-        optimizer = SGD(lr=args.step, decay=1e-6, mementum=0.9, nesterov=True)
+        optimizer = SGD(lr=args.step)
     elif args.optimizer == "adagrad":
-        optimizer = Adagrad(args.step)
+        optimizer = Adagrad(lr=args.step)
     elif args.optimizer == "adadelta":
         optimizer = Adadelta(lr=args.step)
     elif args.optimizer == "rms":
         optimizer = RMSprop(lr=args.step)
     elif args.optimizer == "adam":
-        optimizer = Adam()
+        optimizer = Adam(lr=args.step)
     else:
         raise "Need set optimizer correctly"
 
