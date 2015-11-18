@@ -106,15 +106,16 @@ def build_network(args, wordEmbeddings, maxlen=36):
     l_mul = Sequential()
     l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
     #l_mul.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
-    l_mul.add(Dense(output_dim=args.hiddenDim))
+    #l_mul.add(Dense(output_dim=args.hiddenDim))
 
     l_sub = Sequential()
     l_sub.add(Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
     #l_sub.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
-    l_sub.add(Dense(output_dim=args.hiddenDim))
+    #l_sub.add(Dense(output_dim=args.hiddenDim))
 
     model = Sequential()
-    model.add(Merge([l_mul, l_sub], mode='sum'))
+    model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
+    model.add(Dense(output_dim=2*args.wvecDim))
     model.add(Activation('sigmoid'))
 
     if args.task=="sts":
