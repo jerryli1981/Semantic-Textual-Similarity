@@ -9,20 +9,27 @@ from scipy.stats import pearsonr
 
 sys.path.insert(0, os.path.abspath('../keras'))
 
-import keras
+from keras.preprocessing import sequence
+from keras.optimizers import SGD, Adam, RMSprop, Adagrad, Adadelta
+from keras.utils import np_utils
+from keras.models import Sequential
+from keras.layers.core import Dense, Dropout, Activation, Merge, Flatten
+from keras.layers.embeddings import Embedding
+from keras.layers.recurrent import LSTM, GRU
+from keras.regularizers import l2,activity_l2
 
-def load_data(data, wordEmbeddings, args, maxlen=36):
+
+def load_data(data, args):
 
     Y_scores_pred = np.zeros((len(data), args.rangeScores+1), dtype=np.float32)
 
-    #maxlen = 0
+    maxlen = 0
     for i, (label, score, l_t, r_t) in enumerate(data):
 
-        """
         max_ = max(len(l_t.nodes), len(r_t.nodes))
         if maxlen < max_:
             maxlen = max_
-        """
+
         sim = score
         ceil = np.ceil(sim)
         floor = np.floor(sim)
@@ -34,20 +41,23 @@ def load_data(data, wordEmbeddings, args, maxlen=36):
 
     Y_scores_pred = Y_scores_pred[:, 1:]
 
-    X1 = np.zeros((len(data), maxlen, args.wvecDim), dtype=np.float32)
-    X2 = np.zeros((len(data), maxlen, args.wvecDim), dtype=np.float32)
-
-    
     Y_scores = np.zeros((len(data)), dtype=np.float32)
     labels = []
+    X1 = []
+    X2 =[]
+    for label, score, l_tree, r_tree in data:
 
-    for i, (label, score, l_tree, r_tree) in enumerate(data):
+        l_n_idx = []
+        for Node in l_tree.nodes:
+            l_n_idx.append(Node.index)
 
-        for j, Node in enumerate(l_tree.nodes):
-            X1[i, j] =  wordEmbeddings[:, Node.index]
+        X1.append(l_n_idx)
 
-        for k, Node in enumerate(r_tree.nodes):
-            X2[i, k] =  wordEmbeddings[:, Node.index]
+        r_n_idx = []
+        for Node in r_tree.nodes:
+            r_n_idx.append(Node.index)
+
+        X2.append(r_n_idx)
 
         labels.append(label)
         Y_scores[i] = score
@@ -55,6 +65,9 @@ def load_data(data, wordEmbeddings, args, maxlen=36):
     Y_labels = np.zeros((len(labels), args.numLabels))
     for i in range(len(labels)):
         Y_labels[i, labels[i]] = 1.
+
+    X1 = sequence.pad_sequences(X1, maxlen=maxlen)
+    X2 = sequence.pad_sequences(X2, maxlen=maxlen)   
         
     return X1, X2, Y_labels, Y_scores, Y_scores_pred
 
@@ -70,45 +83,45 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsiz
             excerpt = slice(start_idx, start_idx + batchsize)
         yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt], scores_pred[excerpt]
 
-def build_network(args,maxlen=36):
-
-    from keras.regularizers import l2,activity_l2
-    from keras.models import Sequential
-    from keras.layers.core import Dense, Dropout, Activation, Merge, TimeDistributedMerge, TimeDistributedDense
-    from keras.layers.core import Flatten
-    from keras.optimizers import SGD, Adam, RMSprop, Adagrad, Adadelta
-    from keras.layers.recurrent import LSTM
-
+def build_network(args, wordEmbeddings, maxlen=36):
 
     input_shape=(maxlen, args.wvecDim)
 
+    vocab_dim = args.wvecDim
+    n_symbols = wordEmbeddings.shape[1]
     print("Building model and compiling functions...")
 
     l_lstm_1 = Sequential()
-    l_lstm_1.add(LSTM(output_dim=args.wvecDim, return_sequences=True, input_shape=(maxlen, args.wvecDim)))
-    l_lstm_1.add(Flatten())
+    l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=args.wvecDim, 
+        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
+    l_lstm_1.add(LSTM(output_dim=args.wvecDim, return_sequences=False, input_shape=(maxlen, args.wvecDim)))
+    l_lstm_1.add(Dropout(0.5))
+
 
     l_lstm_2 = Sequential()
-    l_lstm_2.add(LSTM(output_dim=args.wvecDim, return_sequences=True, input_shape=(maxlen, args.wvecDim)))
-    l_lstm_2.add(Flatten())
+    l_lstm_2.add(Embedding(input_dim=n_symbols, output_dim=args.wvecDim, 
+        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
+    l_lstm_2.add(LSTM(output_dim=args.wvecDim, return_sequences=False, input_shape=(maxlen, args.wvecDim)))
+    l_lstm_2.add(Dropout(0.5))
 
     l_mul = Sequential()
     l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
-    l_mul.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
+    #l_mul.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
+    l_mul.add(Dense(output_dim=args.hiddenDim))
 
     l_sub = Sequential()
     l_sub.add(Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
-    l_sub.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
+    #l_sub.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(0.01), activity_regularizer=activity_l2(0.01)))
+    l_sub.add(Dense(output_dim=args.hiddenDim))
 
     model = Sequential()
     model.add(Merge([l_mul, l_sub], mode='sum'))
     model.add(Activation('sigmoid'))
 
     if args.task=="sts":
-        model.add(Dense(args.rangeScores, init='uniform'))
+        model.add(Dense(args.rangeScores))
     elif args.task == "ent":
-        model.add(Dense(args.numLabels, init='uniform'))
-
+        model.add(Dense(args.numLabels))
 
     model.add(Activation('softmax'))
 
@@ -121,6 +134,8 @@ def build_network(args,maxlen=36):
         optimizer = Adadelta(lr=args.step)
     elif args.optimizer == "rms":
         optimizer = RMSprop(lr=args.step)
+    elif args.optimizer == "adam":
+        optimizer = Adam()
     else:
         raise "Need set optimizer correctly"
 
@@ -162,13 +177,13 @@ if __name__ == '__main__':
     print "dev number %d"%len(devTrees)
     print "test number %d"%len(testTrees)
 
-    wordEmbeddings = tr.loadWord2VecMap()[:args.wvecDim, :]
-    
-    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = load_data(trainTrees, wordEmbeddings, args)
-    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = load_data(devTrees, wordEmbeddings, args)
-    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = load_data(testTrees, wordEmbeddings, args)
+    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = load_data(trainTrees, args)
+    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = load_data(devTrees, args)
+    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = load_data(testTrees, args)
 
-    train_fn, val_fn, predict_proba= build_network(args)
+
+    wordEmbeddings = tr.loadWord2VecMap()
+    train_fn, val_fn, predict_proba= build_network(args, wordEmbeddings)
 
     print("Starting training...")
     best_val_acc = 0
