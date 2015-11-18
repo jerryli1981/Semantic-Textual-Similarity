@@ -19,73 +19,13 @@ from keras.layers.recurrent import LSTM, GRU
 from keras.regularizers import l2,activity_l2
 
 
-def load_data(data, args):
+from utils import load_data_index
 
-    Y_scores_pred = np.zeros((len(data), args.rangeScores+1), dtype=np.float32)
-
-    maxlen = 0
-    for i, (label, score, l_t, r_t) in enumerate(data):
-
-        max_ = max(len(l_t.nodes), len(r_t.nodes))
-        if maxlen < max_:
-            maxlen = max_
-
-        sim = score
-        ceil = np.ceil(sim)
-        floor = np.floor(sim)
-        if ceil == floor:
-            Y_scores_pred[i, floor] = 1
-        else:
-            Y_scores_pred[i, floor] = ceil-sim 
-            Y_scores_pred[i, ceil] = sim-floor
-
-    Y_scores_pred = Y_scores_pred[:, 1:]
-
-    Y_scores = np.zeros((len(data)), dtype=np.float32)
-    labels = []
-    X1 = []
-    X2 =[]
-    for label, score, l_tree, r_tree in data:
-
-        l_n_idx = []
-        for Node in l_tree.nodes:
-            l_n_idx.append(Node.index)
-
-        X1.append(l_n_idx)
-
-        r_n_idx = []
-        for Node in r_tree.nodes:
-            r_n_idx.append(Node.index)
-
-        X2.append(r_n_idx)
-
-        labels.append(label)
-        Y_scores[i] = score
-
-    Y_labels = np.zeros((len(labels), args.numLabels))
-    for i in range(len(labels)):
-        Y_labels[i, labels[i]] = 1.
-
-    X1 = sequence.pad_sequences(X1, maxlen=maxlen)
-    X2 = sequence.pad_sequences(X2, maxlen=maxlen)   
-        
-    return X1, X2, Y_labels, Y_scores, Y_scores_pred
-
-def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsize, shuffle=False):
-    assert len(inputs1) == len(targets)
-    if shuffle:
-        indices = np.arange(len(inputs1))
-        np.random.shuffle(indices)
-    for start_idx in range(0, len(inputs1) - batchsize + 1, batchsize):
-        if shuffle:
-            excerpt = indices[start_idx:start_idx + batchsize]
-        else:
-            excerpt = slice(start_idx, start_idx + batchsize)
-        yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt], scores_pred[excerpt]
+from utils import iterate_minibatches
 
 def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
  
-    print("Building model and compiling functions...")
+    print("Building model ...")
     n_symbols = wordEmbeddings.shape[1]
     wordEmbeddings = wordEmbeddings[:args.wvecDim, :]
 
@@ -182,17 +122,14 @@ if __name__ == '__main__':
     trainTrees = tr.loadTrees("train")
     devTrees = tr.loadTrees("dev")
     testTrees = tr.loadTrees("test")
-    
-    print "train number %d"%len(trainTrees)
-    print "dev number %d"%len(devTrees)
-    print "test number %d"%len(testTrees)
-
-    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = load_data(trainTrees, args)
-    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = load_data(devTrees, args)
-    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = load_data(testTrees, args)
-
 
     wordEmbeddings = tr.loadWord2VecMap()
+    vocabSize = wordEmbeddings.shape[1]
+    
+    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = load_data_index(trainTrees, args,vocabSize)
+    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = load_data_index(devTrees, args, vocabSize)
+    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = load_data_index(testTrees, args,vocabSize)
+
     train_fn, val_fn, predict_proba= build_network(args, wordEmbeddings)
 
     print("Starting training...")
