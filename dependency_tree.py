@@ -1,4 +1,4 @@
-iUNK = 'UNK'
+UNK = 'UNK'
 
 import networkx as nx
 import copy
