@@ -53,13 +53,16 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
 
     l_mul = Sequential()
     l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
+    l_mul.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
 
     l_sub = Sequential()
     l_sub.add(Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
+    l_sub.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
 
     model = Sequential()
-    model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
-    model.add(Dense(output_dim=2*args.hiddenDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
+    #model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
+    #model.add(Dense(output_dim=2*args.hiddenDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
+    model.add(Merge([l_mul,l_sub], mode='sum'))
 
     if args.mlpActivation == "sigmoid":
         model.add(Activation('sigmoid'))
