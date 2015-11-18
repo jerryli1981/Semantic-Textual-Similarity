@@ -85,12 +85,11 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsiz
 
 def build_network(args, wordEmbeddings, maxlen=36):
 
-    input_shape=(maxlen, args.wvecDim)
-
-    vocab_dim = args.wvecDim
-    n_symbols = wordEmbeddings.shape[1]
+    
     print("Building model and compiling functions...")
-
+    n_symbols = wordEmbeddings.shape[1]
+    wordEmbeddings = wordEmbeddings[:, :args.wvecDim]
+    
     l_lstm_1 = Sequential()
     l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=args.wvecDim, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
