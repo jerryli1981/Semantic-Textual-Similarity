@@ -6,12 +6,12 @@ set -x
 ###################
 
 # training params
-epochs=200
+epochs=100
 step=0.05
 numLabels=3
 rangeScores=5
 hiddenDim=50
-wvecDim=150
+wvecDim=200
 miniBatch=25
 mlpActivation=sigmoid
 optimizer=adam
