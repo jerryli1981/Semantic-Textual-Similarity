@@ -7,15 +7,15 @@ set -x
 
 # training params
 epochs=200
-step=1.0
+step=0.05
 numLabels=3
 rangeScores=5
-hiddenDim=150
-wvecDim=300
-miniBatch=128
+hiddenDim=50
+wvecDim=150
+miniBatch=25
 mlpActivation=sigmoid
-optimizer=adadelta
-task=sts #ent
+optimizer=adam
+task=ent #ent
 
 if [ "$1" == "keras" ]
 then
