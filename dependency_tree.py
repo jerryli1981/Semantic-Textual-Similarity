@@ -1,4 +1,4 @@
-UNK = 'UNK'
+iUNK = 'UNK'
 
 import networkx as nx
 import copy
@@ -304,7 +304,7 @@ def build_word2Vector_glove():
     import gzip
     vocab = loadWordMap()
     word_vecs = {}
-    with gzip.open("/Users/peng/Develops/Semantic-Textual-Similarity/glove.6B.300d.txt.gz", "rb") as f:
+    with gzip.open("glove.6B.300d.txt.gz", "rb") as f:
         for line in f:
            toks = line.split(' ')
            word = toks[0]
