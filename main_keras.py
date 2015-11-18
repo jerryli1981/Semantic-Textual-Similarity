@@ -88,8 +88,8 @@ def build_network(args, wordEmbeddings, maxlen=36):
     
     print("Building model and compiling functions...")
     n_symbols = wordEmbeddings.shape[1]
-    wordEmbeddings = wordEmbeddings[:, :args.wvecDim]
-    
+    wordEmbeddings = wordEmbeddings[:args.wvecDim, :]
+
     l_lstm_1 = Sequential()
     l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=args.wvecDim, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
