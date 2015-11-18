@@ -59,7 +59,7 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
 
     model = Sequential()
     model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
-    model.add(Dense(output_dim=2*args.wvecDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
+    model.add(Dense(output_dim=2*args.hiddenDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
 
     if args.mlpActivation == "sigmoid":
         model.add(Activation('sigmoid'))
