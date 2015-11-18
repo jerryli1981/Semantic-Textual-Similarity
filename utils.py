@@ -139,9 +139,9 @@ def load_data_index(data, args, vocabSize, maxlen=36):
 
         for j in range(maxlen):
             if j < maxlen - len(r_t.nodes):
-                X1[i,j] = vocabSize-1
+                X2[i,j] = vocabSize-1
             else:
-                X1[i, j] =  l_t.nodes[j-maxlen+len(r_t.nodes)].index
+                X2[i, j] =  r_t.nodes[j-maxlen+len(r_t.nodes)].index
 
         labels.append(label)
         Y_scores[i] = score
