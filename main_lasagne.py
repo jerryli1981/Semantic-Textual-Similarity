@@ -178,28 +178,36 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None, maxle
         l1_in, num_units=args.wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
 
-    l_forward_1 = ReshapeLayer(l_forward_1,(batchsize, 1, maxlen, args.wvecDim))
+    l_forward_1 = lasagne.layers.SliceLayer(l_forward_1, indices=slice(-3, None), axis=1)
+
+    l_forward_1 = ReshapeLayer(l_forward_1,(batchsize, 1, 3, args.wvecDim))
 
     #l2_in = ReshapeLayer(l2_in,(-1, maxlen, args.wvecDim))
     l_forward_2 = LSTMLayer(
         l2_in, args.wvecDim, grad_clipping=GRAD_CLIP,
         nonlinearity=lasagne.nonlinearities.tanh)
-    l_forward_2 = ReshapeLayer(l_forward_2,(batchsize, 1, maxlen, args.wvecDim))
+
+    l_forward_2 = lasagne.layers.SliceLayer(l_forward_2, indices=slice(-3, None), axis=1)
+
+    l_forward_2 = ReshapeLayer(l_forward_2,(batchsize, 1, 3, args.wvecDim))
 
 
     l_forward_1 = Conv2DLayer(
-            l_forward_1, num_filters=32, filter_size=(5, 5),
+            l_forward_1, num_filters=32, filter_size=(2, 2),
             nonlinearity=lasagne.nonlinearities.rectify,
             W=lasagne.init.GlorotUniform())
  
     # Max-pooling layer of factor 2 in both dimensions:
     l_forward_1 = lasagne.layers.MaxPool2DLayer(l_forward_1, pool_size=(2, 2))
 
+    """"
     #another con2d
     l_forward_1 = lasagne.layers.Conv2DLayer(
-            l_forward_1, num_filters=32, filter_size=(5, 5),
+            l_forward_1, num_filters=32, filter_size=(2, 2),
             nonlinearity=lasagne.nonlinearities.rectify)
+
     l_forward_1 = lasagne.layers.MaxPool2DLayer(l_forward_1, pool_size=(2, 2))
+    """
 
     # A fully-connected layer of 256 units with 50% dropout on its inputs:
     l_forward_1 = DenseLayer(
@@ -208,18 +216,20 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None, maxle
             nonlinearity=lasagne.nonlinearities.rectify)
 
     l_forward_2 = Conv2DLayer(
-            l_forward_2, num_filters=32, filter_size=(5, 5),
+            l_forward_2, num_filters=32, filter_size=(2, 2),
             nonlinearity=lasagne.nonlinearities.rectify,
             W=lasagne.init.GlorotUniform())
  
     # Max-pooling layer of factor 2 in both dimensions:
     l_forward_2 = lasagne.layers.MaxPool2DLayer(l_forward_2, pool_size=(2, 2))
 
+    """"
     #another con2d
     l_forward_2 = lasagne.layers.Conv2DLayer(
-            l_forward_2, num_filters=32, filter_size=(5, 5),
+            l_forward_2, num_filters=32, filter_size=(2, 2),
             nonlinearity=lasagne.nonlinearities.rectify)
     l_forward_2 = lasagne.layers.MaxPool2DLayer(l_forward_2, pool_size=(2, 2))
+    """
 
     # A fully-connected layer of 256 units with 50% dropout on its inputs:
     l_forward_2 = DenseLayer(
@@ -227,14 +237,29 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None, maxle
             num_units=128,
             nonlinearity=lasagne.nonlinearities.rectify)
 
+
+    #l_forward_1 = FlattenLayer(l_forward_1)
+
+    #l_forward_2 = FlattenLayer(l_forward_2)
+
+    #l_forward_1 = lasagne.layers.SliceLayer(l_forward_1, indices=-1, axis=1)
+
+    #l_forward_2 = lasagne.layers.SliceLayer(l_forward_2, indices=-1, axis=1)
+
     # elementwisemerge need fix the sequence length
     l12_mul = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
     l12_sub = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub)
     l12_sub = AbsLayer(l12_sub)
 
+    #l12_mul  = ReshapeLayer(l12_mul,(-1, args.wvecDim))
+    #l12_sub = ReshapeLayer(l12_sub,(-1, args.wvecDim))
 
     l12_mul_Dense = DenseLayer(l12_mul, num_units=args.hiddenDim, nonlinearity=None, b=None)
     l12_sub_Dense = DenseLayer(l12_sub, num_units=args.hiddenDim, nonlinearity=None, b=None)
+
+
+    #l12_mul_Dense_r = ReshapeLayer(l12_mul_Dense, (batchsize, seqlen, args.hiddenDim))
+    #l12_sub_Dense_r  = ReshapeLayer(l12_sub_Dense, (batchsize, seqlen, args.hiddenDim))
     
     joined = ElemwiseSumLayer([l12_mul_Dense, l12_sub_Dense])
 
