@@ -100,17 +100,17 @@ def load_data_embedding(data, wordEmbeddings, args, maxlen=36):
     return X1, X2, Y_labels, Y_scores, Y_scores_pred
 
 
-def load_data_index(data, args, vocabSize):
+def load_data_index(data, args, vocabSize, maxlen=36):
 
     Y_scores_pred = np.zeros((len(data), args.rangeScores+1), dtype=np.float32)
 
-    maxlen = 0
+    #maxlen = 0
     for i, (label, score, l_t, r_t) in enumerate(data):
-
+        """
         max_ = max(len(l_t.nodes), len(r_t.nodes))
         if maxlen < max_:
             maxlen = max_
-
+        """
         sim = score
         ceil = np.ceil(sim)
         floor = np.floor(sim)
@@ -131,16 +131,17 @@ def load_data_index(data, args, vocabSize):
     for i, (label, score, l_t, r_t) in enumerate(data):
 
         for j in range(maxlen):
-            if j < len(l_t.nodes):
-                X1[i, j] =  l_t.nodes[j].index
-            else:
+            if j < maxlen - len(l_t.nodes):
                 X1[i,j] = vocabSize-1
+            else:
+                X1[i, j] =  l_t.nodes[j-maxlen+len(l_t.nodes)].index
+                
 
         for j in range(maxlen):
-            if j < len(r_t.nodes):
-                X2[i, j] =  r_t.nodes[j].index
+            if j < maxlen - len(r_t.nodes):
+                X1[i,j] = vocabSize-1
             else:
-                X2[i, j] = vocabSize-1
+                X1[i, j] =  l_t.nodes[j-maxlen+len(r_t.nodes)].index
 
         labels.append(label)
         Y_scores[i] = score
