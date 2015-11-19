@@ -7,7 +7,7 @@ set -x
 
 # training params
 epochs=100
-step=0.05
+step=0.001
 numLabels=3
 rangeScores=5
 hiddenDim=50
@@ -15,7 +15,10 @@ wvecDim=200
 miniBatch=25
 mlpActivation=sigmoid
 optimizer=adam
-task=ent #ent
+task=sts
+
+
+export THEANO_FLAGS=mode=FAST_RUN,device=$2,floatX=float32
 
 if [ "$1" == "keras" ]
 then
