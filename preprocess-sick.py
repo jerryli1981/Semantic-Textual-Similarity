@@ -126,7 +126,6 @@ if __name__ == '__main__':
     test_dir = os.path.join(sick_dir, 'test')
     make_dirs([train_dir, dev_dir, test_dir])
 
-    """
     # java classpath for calling Stanford parser
     classpath = ':'.join([
         lib_dir,
@@ -151,7 +150,7 @@ if __name__ == '__main__':
         glob.glob(os.path.join(sick_dir, '*/*.toks')),
         os.path.join(sick_dir, 'vocab-cased.txt'),
         lowercase=False)
-    """
+    
     glove_path = os.path.join(data_dir, 'glove/glove.6B.300d.txt.gz')
     vocab_path = os.path.join(sick_dir, 'vocab-cased.txt')
     build_word2Vector(glove_path, sick_dir, 'vocab-cased.txt')

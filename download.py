@@ -75,20 +75,6 @@ def download_parser(dirpath):
     os.remove(filepath)
     os.rename(os.path.join(dirpath, zip_dir), os.path.join(dirpath, parser_dir))
 
-def download_wordvecs(dirpath):
-    if os.path.exists(dirpath):
-        print('Found Glove vectors - skip')
-        return
-    else:
-        os.makedirs(dirpath)
-    url = 'http://www-nlp.stanford.edu/data/glove.840B.300d.txt.gz'
-    filepath = download(url, dirpath)
-    print('extracting ' + filepath)
-    with gzip.open(filepath, 'rb') as gf:
-        with open(filepath[:-3], 'w') as f:
-            for line in gf:
-                f.write(line)
-    os.remove(filepath)
 
 def download_sick(dirpath):
     if os.path.exists(dirpath):
@@ -117,6 +103,5 @@ if __name__ == '__main__':
     # download dependencies
     download_tagger(lib_dir)
     download_parser(lib_dir)
-    download_wordvecs(wordvec_dir)
     download_sick(sick_dir)
 
