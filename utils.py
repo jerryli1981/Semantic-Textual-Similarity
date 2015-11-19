@@ -1,4 +1,42 @@
 import numpy as np
+import os
+
+def roll_params(params):
+    L, WR, WV, b, Wsg, Wsm, bsm = params
+    return np.concatenate((L.ravel(), WR.ravel(), WV.ravel(), b.ravel(), Wsg.ravel(), Wsm.ravel(), bsm.ravel()))
+
+def unroll_params(arr, hparams):
+
+    relNum, wvecDim, outputDim, numWords, sim_nhidden = hparams
+
+    ind = 0
+
+    d = wvecDim*wvecDim
+
+    L = arr[ind : ind + numWords*wvecDim].reshape( (wvecDim, numWords) )
+    ind +=numWords*wvecDim
+
+    WR = arr[ind : ind + relNum*d].reshape( (relNum, wvecDim, wvecDim) )
+    ind += relNum*d
+
+    WV = arr[ind : ind + d].reshape( (wvecDim, wvecDim) )
+    ind += d
+
+    b = arr[ind : ind + wvecDim].reshape(wvecDim,)
+    ind += wvecDim
+
+    Wsg = arr[ind : ind + sim_nhidden * wvecDim].reshape((sim_nhidden, wvecDim))
+    ind += sim_nhidden * wvecDim
+
+    Wsm = arr[ind : ind + outputDim*sim_nhidden].reshape( (outputDim, sim_nhidden))
+    ind += outputDim*sim_nhidden
+
+    bsm = arr[ind : ind + outputDim].reshape(outputDim,)
+
+    return (L, WR, WV, b, Wsg, Wsm, bsm)
+
+def unwrap_self_forwardBackwardProp(arg, **kwarg):
+    return depTreeRnnModel.forwardBackwardProp(*arg, **kwarg)
 
 def logsoftmax(x):
     N = x.shape[0]
@@ -247,3 +285,110 @@ def load_data_matrix(data, args, seq_len=36, n_children=6, unfinished_flag=-2):
     input_shape = (len(data), seq_len, storage_dim)
       
     return X1, X2, Y, scores, input_shape
+
+
+def loadWord2VecMap(word2vec_path):
+    import cPickle as pickle
+    
+    with open(word2vec_path,'r') as fid:
+        return pickle.load(fid)
+
+
+def read_dataset(data_dir, name, rangeScores=5, numLabels=3, maxlen=36):
+
+    labelIdx_m = {"NEUTRAL":2, "ENTAILMENT":1, "CONTRADICTION":0}
+
+    a_s = os.path.join(data_dir, name+"/a.toks")
+    b_s = os.path.join(data_dir, name+"/b.toks")
+    sims = os.path.join(data_dir, name+"/sim.txt")
+    labs = os.path.join(data_dir, name+"/label.txt") 
+
+    data_size = len([line.rstrip('\n') for line in open(a_s)])
+
+    Y_scores_pred = np.zeros((data_size, rangeScores+1), dtype=np.float32)    
+    Y_scores = np.zeros((data_size), dtype=np.float32) 
+    labels = []
+
+    X1 = np.zeros((data_size, maxlen), dtype=np.float32)
+    X2 = np.zeros((data_size, maxlen), dtype=np.float32)
+
+    from collections import defaultdict
+    words = defaultdict(int)
+
+    vocab_path = os.path.join(data_dir, 'vocab-cased.txt')
+
+    with open(vocab_path, 'r') as f:
+        for tok in f:
+            words[tok.rstrip('\n')] += 1
+
+    vocab = dict(zip(words.iterkeys(),xrange(len(words))))
+    vocab["<UNK>"] = len(words) # Add unknown as word
+
+    with open(a_s, "rb") as f1, \
+         open(b_s, "rb") as f2, \
+         open(sims, "rb") as f3, \
+         open(labs, 'rb') as f4:
+                        
+        for i, (a, b, sim, ent) in enumerate(zip(f1,f2,f3,f4)):
+
+            a = a.rstrip('\n')
+            b = b.rstrip('\n')
+            sim = float(sim.rstrip('\n'))
+            ent = ent.rstrip('\n')
+
+            ceil = np.ceil(sim)
+            floor = np.floor(sim)
+            if ceil == floor:
+                Y_scores_pred[i, floor] = 1
+            else:
+                Y_scores_pred[i, floor] = ceil-sim 
+                Y_scores_pred[i, ceil] = sim-floor
+
+            label = labelIdx_m[ent]
+            Y_scores[i] = sim
+            labels.append(label)
+
+            toks_a = a.split()
+            toks_b = b.split()
+
+            for j in range(maxlen):
+                if j < maxlen - len(toks_a):
+                    X1[i,j] = vocab["<UNK>"]
+                else:
+                    X1[i, j] = vocab[toks_a[j-maxlen+len(toks_a)]]
+                    
+            for j in range(maxlen):
+                if j < maxlen - len(toks_b):
+                    X2[i,j] = vocab["<UNK>"]
+                else:
+                    try:
+                        X2[i,j] = vocab[toks_b[j-maxlen+len(toks_b)]]
+                    except:
+                        print toks_b
+                        print b
+
+    Y_scores_pred = Y_scores_pred[:, 1:]
+    Y_labels = np.zeros((len(labels), numLabels))
+    for i in range(len(labels)):
+        Y_labels[i, labels[i]] = 1.
+
+    return X1, X2, Y_labels, Y_scores, Y_scores_pred
+
+
+if __name__ == '__main__':
+
+    base_dir = os.path.dirname(os.path.realpath(__file__))
+    data_dir = os.path.join(base_dir, 'data')
+    sick_dir = os.path.join(data_dir, 'sick')
+
+    read_dataset(sick_dir, "train")
+
+
+
+    
+
+
+
+
+
+            

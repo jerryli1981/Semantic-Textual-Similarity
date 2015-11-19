@@ -18,10 +18,7 @@ from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM, GRU
 from keras.regularizers import l2,activity_l2
 
-
-from utils import load_data_index
-
-from utils import iterate_minibatches
+from utils import loadWord2VecMap, read_dataset, iterate_minibatches
 
 def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
  
@@ -121,17 +118,15 @@ if __name__ == '__main__':
 
     # Load the dataset
     print("Loading data...")
-    import dependency_tree as tr     
-    trainTrees = tr.loadTrees("train")
-    devTrees = tr.loadTrees("dev")
-    testTrees = tr.loadTrees("test")
+    base_dir = os.path.dirname(os.path.realpath(__file__))
+    data_dir = os.path.join(base_dir, 'data')
+    sick_dir = os.path.join(data_dir, 'sick')
 
-    wordEmbeddings = tr.loadWord2VecMap()
-    vocabSize = wordEmbeddings.shape[1]
+    wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     
-    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = load_data_index(trainTrees, args,vocabSize)
-    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = load_data_index(devTrees, args, vocabSize)
-    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = load_data_index(testTrees, args,vocabSize)
+    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = read_dataset(sick_dir, "train")
+    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = read_dataset(sick_dir, "dev")
+    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = read_dataset(sick_dir, "test")
 
     train_fn, val_fn, predict_proba= build_network(args, wordEmbeddings)
 

@@ -9,161 +9,20 @@ import theano.tensor as T
 from scipy.stats import pearsonr
 
 sys.path.insert(0, os.path.abspath('../Lasagne'))
-#sys.path.append('../Lasagne')
 
-import lasagne
+from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer, FlattenLayer,\
+    ElemwiseMergeLayer, AbsLayer,ReshapeLayer,DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer
 
-def load_data_matrix(data, args, seq_len=36, n_children=6, unfinished_flag=-2):
+from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params
 
-    Y = np.zeros((len(data), args.outputDim+1), dtype=np.float32)
-    scores = np.zeros((len(data)), dtype=np.float32)
+from utils import load_data_embedding
 
-    # to store hidden representation
-    #(rootFlag, finishedFlag, globalgovIdx, n_children* (locaDepIdx, globalDepIdx, relIdx) , hiddenRep)
-    storage_dim = 1 + 1 + 1 + 3*n_children + args.wvecDim
-
-    X1 = np.zeros((len(data), seq_len, storage_dim), dtype=np.float32)
-    X1.fill(-1.0)
-    X2 = np.zeros((len(data), seq_len, storage_dim), dtype=np.float32)
-    X2.fill(-1.0)
-    
-    for i, (score, item) in enumerate(data):
-        first_t, second_t= item
-
-        sim = score
-        ceil = np.ceil(sim)
-        floor = np.floor(sim)
-        if ceil == floor:
-            Y[i, floor] = 1
-        else:
-            Y[i, floor] = ceil-sim
-            Y[i, ceil] = sim-floor
-
-        f_idxSet = set()
-        for govIdx, depIdx in first_t.dependencies:
-            f_idxSet.add(govIdx)
-            f_idxSet.add(depIdx)
-
-        for j, Node in enumerate(first_t.nodes):
-
-            if j not in f_idxSet:
-                continue
-
-            node_vec = np.zeros((storage_dim,), dtype=np.float32)
-            node_vec.fill(-1.0)
-            if j == first_t.rootIdx:
-                node_vec[0] = 1
-
-            node_vec[1] = unfinished_flag
-            node_vec[2] = Node.index
-
-            if len(Node.kids) != 0:
-
-                r = range(0, 3*n_children, 3)
-                r = r[:len(Node.kids)]
-                for d, c in enumerate(r):
-                    localDepIdx, rel = Node.kids[d]
-                    node_vec[3+c] = localDepIdx
-                    node_vec[4+c] = first_t.nodes[localDepIdx].index
-                    node_vec[5+c] = rel.index
-
-
-            X1[i, j] = node_vec
-
-
-        s_idxSet = set()
-        for govIdx, depIdx in second_t.dependencies:
-            s_idxSet.add(govIdx)
-            s_idxSet.add(depIdx)
-
-        for j, Node in enumerate(second_t.nodes):
-
-            if j not in s_idxSet:
-                continue
-
-            node_vec = np.zeros((storage_dim,), dtype=np.float32)
-            node_vec.fill(-1.0)
-            if j == second_t.rootIdx:
-                node_vec[0] = 1
-
-            node_vec[1] = unfinished_flag
-            node_vec[2] = Node.index
-
-            if len(Node.kids) != 0:
-
-                r = range(0, 3*n_children, 3)
-                r = r[:len(Node.kids)]
-                for d, c in enumerate(r):
-                    localDepIdx, rel = Node.kids[d]
-                    node_vec[3+c] = localDepIdx
-                    node_vec[4+c] = second_t.nodes[localDepIdx].index
-                    node_vec[5+c] = rel.index
-
-            X2[i, j] = node_vec
-   
-        scores[i] = score
-
-    Y = Y[:, 1:]
-
-    input_shape = (len(data), seq_len, storage_dim)
-      
-    return X1, X2, Y, scores, input_shape
-
-def load_data(data, wordEmbeddings, args, maxlen=36):
-
-    Y_scores_pred = np.zeros((len(data), args.rangeScores+1), dtype=np.float32)
-
-    #maxlen = 0
-    for i, (label, score, l_t, r_t) in enumerate(data):
-        """
-        max_ = max(len(l_t.nodes), len(r_t.nodes))
-        if maxlen < max_:
-            maxlen = max_
-        """
-        sim = score
-        ceil = np.ceil(sim)
-        floor = np.floor(sim)
-        if ceil == floor:
-            Y_scores_pred[i, floor] = 1
-        else:
-            Y_scores_pred[i, floor] = ceil-sim 
-            Y_scores_pred[i, ceil] = sim-floor
-
-    Y_scores_pred = Y_scores_pred[:, 1:]
-
-    X1 = np.zeros((len(data), maxlen, args.wvecDim), dtype=np.float32)
-    X2 = np.zeros((len(data), maxlen, args.wvecDim), dtype=np.float32)
-
-    Y_labels = np.zeros((len(data)), dtype=np.int32)
-    Y_scores = np.zeros((len(data)), dtype=np.float32)
-
-    #np.random.uniform(-0.25,0.25,k)
-
-    for i, (label, score, l_tree, r_tree) in enumerate(data):
-
-        for j, Node in enumerate(l_tree.nodes):
-            X1[i, j] =  wordEmbeddings[:, Node.index]
-            if j >= len(l_tree.nodes):
-                X1[i,j] =  np.random.uniform(-0.25,0.25, args.wvecDim)
-
-        for k, Node in enumerate(r_tree.nodes):
-            X2[i, k] =  wordEmbeddings[:, Node.index]
-            if j >= len(r_tree.nodes):
-                X2[i, j] =  np.random.uniform(-0.25,0.25, args.wvecDim)
-
-        Y_labels[i] = label
-        Y_scores[i] = score
-        
-    return X1, X2, Y_labels, Y_scores, Y_scores_pred
+from utils import iterate_minibatches
 
 
 def build_network(args, input1_var=None, input2_var=None, target_var=None, maxlen=36):
 
-    print("Building model 0 and compiling functions...")
-
-    from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer, FlattenLayer,\
-    ElemwiseMergeLayer, AbsLayer,ReshapeLayer,DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer
-    from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params
+    print("Building model ...")
 
     l1_in = InputLayer((None, maxlen, args.wvecDim),input_var=input1_var)
 
@@ -319,19 +178,6 @@ def build_network(args, input1_var=None, input2_var=None, target_var=None, maxle
             [test_loss, test_acc], allow_input_downcast=True)
 
     return train_fn, val_fn
-
-def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsize, shuffle=False):
-    assert len(inputs1) == len(targets)
-    if shuffle:
-        indices = np.arange(len(inputs1))
-        np.random.shuffle(indices)
-    for start_idx in range(0, len(inputs1) - batchsize + 1, batchsize):
-        if shuffle:
-            excerpt = indices[start_idx:start_idx + batchsize]
-        else:
-            excerpt = slice(start_idx, start_idx + batchsize)
-        yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt], scores_pred[excerpt]
-
 
 if __name__ == '__main__':
 
