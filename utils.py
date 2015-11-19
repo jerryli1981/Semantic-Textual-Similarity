@@ -345,7 +345,7 @@ def read_dataset(data_dir, name, rangeScores=5, numLabels=3, maxlen=36):
                 Y_scores_pred[i, ceil] = sim-floor
 
             label = labelIdx_m[ent]
-            Y_scores[i] = sim
+            Y_scores[i] = 0.25 * (sim -1)
             labels.append(label)
 
             toks_a = a.split()
