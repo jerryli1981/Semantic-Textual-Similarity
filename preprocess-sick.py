@@ -98,7 +98,7 @@ def build_word2Vector(glove_path, sick_dir, vocab_name):
     
     for word in vocab:
         if word not in word_vecs and vocab[word] >= min_df:
-            word_vecs[word] = np.random.uniform(-0.25,0.25,k) 
+            word_vecs[word] = np.random.uniform(-0.05,0.05,k) 
 
     assert len(vocab) == len(word_vecs), "length of vocab mush equal with word_vecs"   
 
@@ -138,9 +138,9 @@ if __name__ == '__main__':
     split(os.path.join(sick_dir, 'SICK_test_annotated.txt'), test_dir)
 
     # parse sentences
-    parse(train_dir, cp=classpath)
-    parse(dev_dir, cp=classpath)
-    parse(test_dir, cp=classpath)
+    #parse(train_dir, cp=classpath)
+    #parse(dev_dir, cp=classpath)
+    #parse(test_dir, cp=classpath)
 
     # get vocabulary
     build_vocab(
