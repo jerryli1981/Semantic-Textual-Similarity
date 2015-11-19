@@ -30,8 +30,8 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
     l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=300, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
     l_lstm_1.add(LSTM(output_dim=150, return_sequences=False, 
-        input_shape=(maxlen, args.wvecDim)))
-    l_lstm_1.add(Dropout(0.1))
+        input_shape=(maxlen, 300)))
+    #l_lstm_1.add(Dropout(0.1))
     l_lstm_1.layers[1].regularizers = [l2(reg)] * 12
     for i in range(12):    
         l_lstm_1.layers[1].regularizers[i].set_param(l_lstm_1.layers[1].get_params()[0][i])
@@ -41,8 +41,8 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
     l_lstm_2.add(Embedding(input_dim=n_symbols, output_dim=300, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
     l_lstm_2.add(LSTM(output_dim=150, return_sequences=False, 
-        input_shape=(maxlen, args.wvecDim)))
-    l_lstm_2.add(Dropout(0.1))
+        input_shape=(maxlen, 300)))
+    #l_lstm_2.add(Dropout(0.1))
     l_lstm_2.layers[1].regularizers = [l2(reg)] * 12
     for i in range(12):    
         l_lstm_2.layers[1].regularizers[i].set_param(l_lstm_2.layers[1].get_params()[0][i])
@@ -50,16 +50,16 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
 
     l_mul = Sequential()
     l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
-    l_mul.add(Dense(output_dim=150,W_regularizer=l2(reg),b_regularizer=l2(reg)))
+    #l_mul.add(Dense(output_dim=150,W_regularizer=l2(reg),b_regularizer=l2(reg)))
 
     l_sub = Sequential()
     l_sub.add(Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
-    l_sub.add(Dense(output_dim=150,W_regularizer=l2(reg),b_regularizer=l2(reg)))
+    #l_sub.add(Dense(output_dim=150,W_regularizer=l2(reg),b_regularizer=l2(reg)))
 
     model = Sequential()
-    #model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
-    #model.add(Dense(output_dim=2*args.hiddenDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
-    model.add(Merge([l_mul,l_sub], mode='sum'))
+    model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
+    model.add(Dense(output_dim=300,W_regularizer=l2(reg),b_regularizer=l2(reg)))
+    #model.add(Merge([l_mul,l_sub], mode='sum'))
 
     if args.mlpActivation == "sigmoid":
         model.add(Activation('sigmoid'))
