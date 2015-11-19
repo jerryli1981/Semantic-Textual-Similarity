@@ -151,6 +151,6 @@ if __name__ == '__main__':
         os.path.join(sick_dir, 'vocab-cased.txt'),
         lowercase=False)
     
-    glove_path = os.path.join(data_dir, 'glove/glove.6B.300d.txt.gz')
+    glove_path = os.path.join(base_dir, 'glove.6B.300d.txt.gz')
     vocab_path = os.path.join(sick_dir, 'vocab-cased.txt')
     build_word2Vector(glove_path, sick_dir, 'vocab-cased.txt')
