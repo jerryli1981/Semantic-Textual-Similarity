@@ -111,7 +111,7 @@ def build_network(args, wordEmbeddings, L1_reg=0.00, L2_reg=0.0001):
     x = T.fmatrix('x')  # n * d, the data is presented as one sentence output    
     y = T.fmatrix('y')  # n * d, the target distribution\
 
-    classifier = MLP(rng=rng,input=x, n_in=2*rep_model.wvecDim, n_hidden=args.hiddenDim,n_out=args.outputDim)
+    classifier = MLP(rng=rng,input=x, n_in=2*rep_model.wvecDim, n_hidden=args.hiddenDim,n_out=args.rangeScores)
 
     cost = T.mean(classifier.kl_divergence(y)) + L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
 
@@ -143,6 +143,8 @@ def build_network(args, wordEmbeddings, L1_reg=0.00, L2_reg=0.0001):
 
         update_params_theano = theano.function(inputs=[x,y], outputs=cost,
                                 updates=grad_updates_adadelta, allow_input_downcast=True)
+    else:
+        raise "Set optimizer"
 
 
     cost_and_prob = theano.function([x, y], [cost, classifier.output], allow_input_downcast=True)
@@ -173,7 +175,7 @@ def train(args, rep_model, rnn_optimizer, update_params_theano, delta_x, batchDa
 
         vec_feat_2d = vec_feat.reshape((1, 2*rep_model.wvecDim))
 
-        td_2d = td.reshape((1, args.outputDim))
+        td_2d = td.reshape((1, args.rangeScores))
 
         delta = delta_x(vec_feat_2d, td_2d)
         delta_mul = delta[:rep_model.wvecDim]
@@ -204,11 +206,11 @@ def train(args, rep_model, rnn_optimizer, update_params_theano, delta_x, batchDa
 
     if args.optimizer == 'sgd':
 
-        cost = update_params_theano(mul_reps, sub_reps, Y_scores_pred)
+        cost = update_params_theano(vec_feats, Y_scores_pred)
 
         update = rep_model.dstack
 
-        rep_model.stack[1:] = [P-learning_rate*dP for P,dP in zip(rep_model.stack[1:],update[1:])]
+        rep_model.stack[1:] = [P-args.step*dP for P,dP in zip(rep_model.stack[1:],update[1:])]
 
         # handle dictionary update sparsely
         """
@@ -364,7 +366,7 @@ if __name__ == '__main__':
     parser.add_argument("--optimizer",dest="optimizer",type=str,default="adagrad")
     parser.add_argument("--epochs",dest="epochs",type=int,default=10)
     parser.add_argument("--step",dest="step",type=float,default=0.05)
-    parser.add_argument("--outputDim",dest="outputDim",type=int,default=5)
+    parser.add_argument("--rangeScores",dest="rangeScores",type=int,default=5)
     parser.add_argument("--hiddenDim",dest="hiddenDim",type=int,default=50)
     parser.add_argument("--wvecDim",dest="wvecDim",type=int,default=150)
     parser.add_argument("--repModel",dest="repModel",type=str,default="RNN")

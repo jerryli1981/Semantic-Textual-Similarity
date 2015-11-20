@@ -14,7 +14,7 @@ hiddenDim=50
 wvecDim=300
 miniBatch=30
 mlpActivation=sigmoid
-optimizer=adam
+optimizer=adagrad
 repModel=LSTM
 task=sts
 
@@ -40,9 +40,9 @@ python -u main_lasagne.py --task $task --step $step --mlpActivation $mlpActivati
 elif [ "$1" == "theano" ]
 then
 echo "run theano"
-python -u main_theano.py --repModel $repModel --step $step --mlpActivation $mlpActivation \
+python -u main_theano.py --repModel $repModel --step $step  \
 				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
-                  			--rangeScores $rangeScores	--numLabels $numLabels\
+                  			--rangeScores $rangeScores\
                   			--minibatch $miniBatch --wvecDim $wvecDim
 
 fi
