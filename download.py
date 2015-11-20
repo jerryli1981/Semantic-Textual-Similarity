@@ -52,7 +52,7 @@ def download_tagger(dirpath):
     if os.path.exists(os.path.join(dirpath, tagger_dir)):
         print('Found Stanford POS Tagger - skip')
         return
-    url = 'http://nlp.stanford.edu/software/stanford-postagger-2015-01-29.zip'
+    url = 'http://nlp.stanford.edu/software/stanford-postagger-2015-04-20.zip'
     filepath = download(url, dirpath)
     zip_dir = ''
     with zipfile.ZipFile(filepath) as zf:
@@ -66,7 +66,7 @@ def download_parser(dirpath):
     if os.path.exists(os.path.join(dirpath, parser_dir)):
         print('Found Stanford Parser - skip')
         return
-    url = 'http://nlp.stanford.edu/software/stanford-parser-full-2015-01-29.zip'
+    url = 'http://nlp.stanford.edu/software/stanford-parser-full-2015-04-20.zip'
     filepath = download(url, dirpath)
     zip_dir = ''
     with zipfile.ZipFile(filepath) as zf:
@@ -94,7 +94,6 @@ if __name__ == '__main__':
 
     # data
     data_dir = os.path.join(base_dir, 'data')
-    wordvec_dir = os.path.join(data_dir, 'glove')
     sick_dir = os.path.join(data_dir, 'sick')
 
     # libraries
