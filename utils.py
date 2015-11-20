@@ -77,6 +77,13 @@ def norm_tanh(x):
 def derivative_tanh(f):
 	return 1 - f**2
 
+def pearson(x, y):
+    x = np.asarray(x)
+    y = np.asarray(y)
+    x = x - np.mean(x)
+    y = y- np.mean(y)
+    return np.dot(x, y) / (np.linalg.norm(x) * np.linalg.norm(y))
+
 def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsize, shuffle=False):
     assert len(inputs1) == len(targets)
     if shuffle:

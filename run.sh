@@ -11,10 +11,10 @@ step=0.001
 numLabels=3
 rangeScores=5
 hiddenDim=50
-wvecDim=300
-miniBatch=30
+wvecDim=100
+miniBatch=10
 mlpActivation=sigmoid
-optimizer=adagrad
+optimizer=adam
 repModel=LSTM
 task=sts
 

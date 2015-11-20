@@ -66,6 +66,63 @@ def sgd_updates_adagrad(params,cost):
         updates[param] = stepped_param       
     return updates 
 
+def floatX(arr):
+    """Converts data to a numpy array of dtype ``theano.config.floatX``.
+    Parameters
+    ----------
+    arr : array_like
+        The data to be converted.
+    Returns
+    -------
+    numpy ndarray
+        The input array in the ``floatX`` dtype configured for Theano.
+        If `arr` is an ndarray of correct dtype, it is returned as is.
+    """
+    return np.asarray(arr, dtype=theano.config.floatX)
+
+def sgd_updates_adam(params,cost, learning_rate=0.001, beta1=0.9,
+         beta2=0.999, epsilon=1e-8):
+    
+    updates = OrderedDict({})
+    exp_sqr_grads = OrderedDict({})
+    gparams = []
+    for param in params:
+        empty = np.zeros_like(param.get_value(), dtype=theano.config.floatX)
+        exp_sqr_grads[param] = theano.shared(value=empty,name="exp_grad_%s" % param.name)
+        gp = T.grad(cost, param)
+        gparams.append(gp)
+
+    """
+    for param, gp in zip(params, gparams):
+        exp_sg = exp_sqr_grads[param]
+        up_exp_sg = exp_sg + T.sqr(gp)
+        updates[exp_sg] = up_exp_sg
+        step =  gp * ( 1./T.sqrt(up_exp_sg) )
+        stepped_param = param - step
+        updates[param] = stepped_param       
+    return updates
+    """ 
+    t_prev = theano.shared(floatX(0.))
+    t = t_prev + 1
+    a_t = learning_rate*T.sqrt(1-beta2**t)/(1-beta1**t)
+    for param, g_t in zip(params, gparams):
+        value = param.get_value(borrow=True)
+        m_prev = theano.shared(np.zeros(value.shape, dtype=value.dtype),
+                               broadcastable=param.broadcastable)
+        v_prev = theano.shared(np.zeros(value.shape, dtype=value.dtype),
+                               broadcastable=param.broadcastable)
+
+        m_t = beta1*m_prev + (1-beta1)*g_t
+        v_t = beta2*v_prev + (1-beta2)*g_t**2
+        step = a_t*m_t/(T.sqrt(v_t) + epsilon)
+
+        updates[m_prev] = m_t
+        updates[v_prev] = v_t
+        updates[param] = param - step
+
+    updates[t_prev] = t
+    return updates
+
 def mul(first_tree_rep, second_tree_rep):
 
     return auto_grad_np.multiply(first_tree_rep, second_tree_rep)
@@ -79,7 +136,7 @@ def train(train_data, dev_data, args, validate=True):
     train_predict(args, trainData=train_data, devData=dev_data, action = 'train', validate=validate) 
 
 
-def build_network(args, wordEmbeddings, L1_reg=0.00, L2_reg=0.0001):
+def build_network(args, wordEmbeddings, L1_reg=0.00, L2_reg=1e-4):
 
     print("Building model ...")
 
@@ -113,7 +170,8 @@ def build_network(args, wordEmbeddings, L1_reg=0.00, L2_reg=0.0001):
 
     classifier = MLP(rng=rng,input=x, n_in=2*rep_model.wvecDim, n_hidden=args.hiddenDim,n_out=args.rangeScores)
 
-    cost = T.mean(classifier.kl_divergence(y)) + L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
+    cost = T.mean(classifier.kl_divergence(y)) + L1_reg * classifier.L1 + 0.5*L2_reg * classifier.L2_sqr
+    #cost = classifier.kl_divergence(y) + L1_reg * classifier.L1 + 0.5*L2_reg * classifier.L2_sqr
 
     gparams = [ T.grad(cost, param) for param in classifier.params]
 
@@ -143,6 +201,12 @@ def build_network(args, wordEmbeddings, L1_reg=0.00, L2_reg=0.0001):
 
         update_params_theano = theano.function(inputs=[x,y], outputs=cost,
                                 updates=grad_updates_adadelta, allow_input_downcast=True)
+    elif args.optimizer == "adam":
+        grad_updates_adam = sgd_updates_adam(classifier.params, cost)
+
+        update_params_theano = theano.function(inputs=[x,y], outputs=cost,
+                                updates=grad_updates_adam, allow_input_downcast=True)
+
     else:
         raise "Set optimizer"
 
@@ -204,9 +268,9 @@ def train(args, rep_model, rnn_optimizer, update_params_theano, delta_x, batchDa
         rep_model.backProp(r_t, delta_rep2_mul)
         rep_model.backProp(r_t, delta_rep2_sub)
 
-    if args.optimizer == 'sgd':
+    cost = update_params_theano(vec_feats, Y_scores_pred)
 
-        cost = update_params_theano(vec_feats, Y_scores_pred)
+    if args.optimizer == 'sgd':
 
         update = rep_model.dstack
 
@@ -220,16 +284,14 @@ def train(args, rep_model, rnn_optimizer, update_params_theano, delta_x, batchDa
         """
 
     elif args.optimizer == 'adagrad':
-
-        cost = update_params_theano(vec_feats, Y_scores_pred)
-        
         rnn_optimizer.adagrad_rnn(rep_model.dstack)
 
     elif args.optimizer == 'adadelta':
-
-        cost = update_params_theano(vec_feats, Y_scores_pred)
         rnn_optimizer.adadelta_rnn(rep_model.dstack)
 
+    elif args.optimizer == "adam":
+        rnn_optimizer.adam_rnn(rep_model.dstack)
+        
     for l_t, r_t  in zip(l_trees, r_trees):      
         l_t.resetFinished()
         r_t.resetFinished()
@@ -298,6 +360,12 @@ class RNN_Optimization:
 
             self.gradt_rnn_1 = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
             self.gradt_rnn_2 = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
+
+        elif self.optimizer =="adam":
+
+            self.m_prev = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
+            self.v_prev = [epsilon + np.zeros(W.shape) for W in self.rep_model.stack]
+            self.t_prev = 0
         
     def adagrad_rnn(self, grad):
 
@@ -355,6 +423,38 @@ class RNN_Optimization:
 
         #updates.append((param_update_2, rho*param_update_2+(1. - rho)*(dparam ** 2)))
         self.gradt_rnn_2[1:] = [rho*dt + (1.0-rho)*( d** 2) for dt, d in zip(self.gradt_rnn_2[1:], dparam)]
+
+    def adam_rnn(self, grad, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
+
+        t = self.t_prev + 1
+
+        self.m_prev[1:] = [beta1*gt + (1-beta1)*g for gt,g in zip(self.m_prev[1:], grad[1:])]
+        self.v_prev[1:] = [beta2*gt + (1-beta2)*g**2 for gt,g in zip(self.v_prev[1:], grad[1:])]
+        a_t = learning_rate*np.sqrt(1-beta2**t)/(1-beta1**t)
+        updates = [ a_t*m/(np.sqrt(v) + epsilon)  for m, v in zip(self.m_prev[1:], self.v_prev[1:])]
+        self.rep_model.stack[1:] = [P - dP for P,dP in zip(self.rep_model.stack[1:],updates)]
+
+        self.t_prev = t
+        
+        """"
+        dL = grad[0]
+        dLt_1 = self.gradt_rnn_1[0]
+        dLt_2 = self.gradt_rnn_2[0]
+
+        for j in range(self.rep_model.numWords):
+            #dLt_1[:,j] = rho*dLt_1[:,j]+(1.0-rho)*(dL[:,j] ** 2)
+            #dL[:,j] = -( np.sqrt(dLt_2[:,j]+eps)/ np.sqrt(dLt_1[:,j]+eps) ) * dL[:,j]
+            dLt_1[:,j] = rho*dLt_1[:,j]+(1.0-rho)*(dL[j] ** 2)
+            dL[j] = -( np.sqrt(dLt_2[:,j]+eps)/ np.sqrt(dLt_1[:,j]+eps) ) * dL[j]
+
+            #update
+            #dLt_2[:,j] = rho*dLt_2[:,j] + (1.0-rho)*(dL[:,j] ** 2)
+            dLt_2[:,j] = rho*dLt_2[:,j] + (1.0-rho)*(dL[j] ** 2)
+
+        for j in range(self.rep_model.numWords):
+            #self.rep_model.L[:,j] += dL[:,j]
+            self.rep_model.L[:,j] += dL[j]
+        """
 
 if __name__ == '__main__':
     
