@@ -227,7 +227,7 @@ def train(args, rep_model, rnn_optimizer, update_params_theano, delta_x, batchDa
 
     elif args.optimizer == 'adadelta':
 
-        cost = update_params_theano(mul_reps, sub_reps, Y_scores_pred)
+        cost = update_params_theano(vec_feats, Y_scores_pred)
         rnn_optimizer.adadelta_rnn(rep_model.dstack)
 
     for l_t, r_t  in zip(l_trees, r_trees):      
