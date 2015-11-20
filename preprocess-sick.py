@@ -45,6 +45,16 @@ def build_vocab(filepaths, dst_path, lowercase=True):
         for w in sorted(vocab):
             f.write(w + '\n')
 
+def build_rel_vocab(filepaths, dst_path):
+    vocab = set()
+    for filepath in filepaths:
+        with open(filepath) as f:
+            for line in f:
+                vocab |= set(line.split())
+    with open(dst_path, 'w') as f:
+        for w in sorted(vocab):
+            f.write(w + '\n')
+
 def split(filepath, dst_dir):
     with open(filepath) as datafile, \
          open(os.path.join(dst_dir, 'a.txt'), 'w') as afile, \
@@ -130,7 +140,7 @@ if __name__ == '__main__':
     classpath = ':'.join([
         lib_dir,
         os.path.join(lib_dir, 'stanford-parser/stanford-parser.jar'),
-        os.path.join(lib_dir, 'stanford-parser/stanford-parser-3.5.1-models.jar')])
+        os.path.join(lib_dir, 'stanford-parser/stanford-parser-3.5.2-models.jar')])
 
     # split into separate files
     split(os.path.join(sick_dir, 'SICK_train.txt'), train_dir)
@@ -138,9 +148,9 @@ if __name__ == '__main__':
     split(os.path.join(sick_dir, 'SICK_test_annotated.txt'), test_dir)
 
     # parse sentences
-    #parse(train_dir, cp=classpath)
-    #parse(dev_dir, cp=classpath)
-    #parse(test_dir, cp=classpath)
+    parse(train_dir, cp=classpath)
+    parse(dev_dir, cp=classpath)
+    parse(test_dir, cp=classpath)
 
     # get vocabulary
     build_vocab(
@@ -150,7 +160,13 @@ if __name__ == '__main__':
         glob.glob(os.path.join(sick_dir, '*/*.toks')),
         os.path.join(sick_dir, 'vocab-cased.txt'),
         lowercase=False)
-    
+
+    #get rel vocabulary
+    build_rel_vocab(
+        glob.glob(os.path.join(sick_dir, '*/*.rels')),
+        os.path.join(sick_dir, 'rel_vocab.txt'))
+
+
     glove_path = os.path.join(base_dir, 'glove.6B.300d.txt.gz')
     vocab_path = os.path.join(sick_dir, 'vocab-cased.txt')
     build_word2Vector(glove_path, sick_dir, 'vocab-cased.txt')

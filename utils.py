@@ -89,6 +89,35 @@ def iterate_minibatches(inputs1, inputs2, targets, scores, scores_pred, batchsiz
             excerpt = slice(start_idx, start_idx + batchsize)
         yield inputs1[excerpt], inputs2[excerpt], targets[excerpt], scores[excerpt], scores_pred[excerpt]
 
+def iterate_minibatches_tree(dataset, batchsize, shuffle=False):
+
+    l_trees, r_trees, Y_labels, Y_scores, Y_scores_pred = dataset
+
+    if shuffle:
+        indices = np.arange(len(l_trees))
+        np.random.shuffle(indices)
+    else:
+        indices = np.arange(len(l_trees))
+
+    batches = []
+    for start_idx in range(0, len(dataset[0]) - batchsize + 1, batchsize):
+        excerpt = indices[start_idx:start_idx + batchsize]
+        l_t_batch=[]
+        r_t_batch=[]
+        y_l_batch=[]
+        y_s_batch = np.zeros((len(excerpt)), dtype=np.float32)
+        y_s_pred_batch=[]
+        for id, i in enumerate(excerpt):
+            l_t_batch.append(l_trees[i])
+            r_t_batch.append(r_trees[i])
+            y_l_batch.append(Y_labels[i])
+            y_s_batch[id] = Y_scores[i]
+            y_s_pred_batch.append(Y_scores_pred[i])
+
+        batches.append((l_t_batch, r_t_batch, y_l_batch, y_s_batch, y_s_pred_batch))
+
+    return batches
+
 
 def load_data_embedding(data, wordEmbeddings, args, maxlen=36):
 
@@ -361,11 +390,92 @@ def read_dataset(data_dir, name, rangeScores=5, numLabels=3, maxlen=36):
                 if j < maxlen - len(toks_b):
                     X2[i,j] = vocab["<UNK>"]
                 else:
-                    try:
-                        X2[i,j] = vocab[toks_b[j-maxlen+len(toks_b)]]
-                    except:
-                        print toks_b
-                        print b
+                    X2[i,j] = vocab[toks_b[j-maxlen+len(toks_b)]]
+      
+
+    Y_scores_pred = Y_scores_pred[:, 1:]
+    Y_labels = np.zeros((len(labels), numLabels))
+    for i in range(len(labels)):
+        Y_labels[i, labels[i]] = 1.
+
+    return X1, X2, Y_labels, Y_scores, Y_scores_pred
+
+def read_dataset_E(data_dir, name, rangeScores=5, numLabels=3, maxlen=36):
+
+    wordEmbeddings = loadWord2VecMap(os.path.join(data_dir, 'word2vec.bin'))
+
+    labelIdx_m = {"NEUTRAL":2, "ENTAILMENT":1, "CONTRADICTION":0}
+
+    a_s = os.path.join(data_dir, name+"/a.toks")
+    b_s = os.path.join(data_dir, name+"/b.toks")
+    sims = os.path.join(data_dir, name+"/sim.txt")
+    labs = os.path.join(data_dir, name+"/label.txt") 
+
+    data_size = len([line.rstrip('\n') for line in open(a_s)])
+
+    Y_scores_pred = np.zeros((data_size, rangeScores+1), dtype=np.float32)    
+    Y_scores = np.zeros((data_size), dtype=np.float32) 
+    labels = []
+
+    X1 = np.zeros((data_size, maxlen, 300), dtype=np.float32)
+    X2 = np.zeros((data_size, maxlen, 300), dtype=np.float32)
+
+    from collections import defaultdict
+    words = defaultdict(int)
+
+    vocab_path = os.path.join(data_dir, 'vocab-cased.txt')
+
+    with open(vocab_path, 'r') as f:
+        for tok in f:
+            words[tok.rstrip('\n')] += 1
+
+    vocab = dict(zip(words.iterkeys(),xrange(len(words))))
+    vocab["<UNK>"] = len(words) # Add unknown as word
+
+    with open(a_s, "rb") as f1, \
+         open(b_s, "rb") as f2, \
+         open(sims, "rb") as f3, \
+         open(labs, 'rb') as f4:
+                        
+        for i, (a, b, sim, ent) in enumerate(zip(f1,f2,f3,f4)):
+
+            a = a.rstrip('\n')
+            b = b.rstrip('\n')
+            sim = float(sim.rstrip('\n'))
+            ent = ent.rstrip('\n')
+
+            ceil = np.ceil(sim)
+            floor = np.floor(sim)
+            if ceil == floor:
+                Y_scores_pred[i, floor] = 1
+            else:
+                Y_scores_pred[i, floor] = ceil-sim 
+                Y_scores_pred[i, ceil] = sim-floor
+
+            label = labelIdx_m[ent]
+            Y_scores[i] = 0.25 * (sim -1)
+            labels.append(label)
+
+            toks_a = a.split()
+            toks_b = b.split()
+
+            for j in range(maxlen):
+                if j < maxlen - len(toks_a):
+                    idx = vocab["<UNK>"]
+
+                else:
+                    idx = vocab[toks_a[j-maxlen+len(toks_a)]] 
+
+                X1[i, j] =  wordEmbeddings[:, idx]
+                    
+            for j in range(maxlen):
+                if j < maxlen - len(toks_b):
+                    idx = vocab["<UNK>"]
+                else:
+                    idx = vocab[toks_b[j-maxlen+len(toks_b)]]
+
+                X2[i, j] =  wordEmbeddings[:, idx]
+
 
     Y_scores_pred = Y_scores_pred[:, 1:]
     Y_labels = np.zeros((len(labels), numLabels))
@@ -375,20 +485,124 @@ def read_dataset(data_dir, name, rangeScores=5, numLabels=3, maxlen=36):
     return X1, X2, Y_labels, Y_scores, Y_scores_pred
 
 
+def read_dataset_tree(data_dir, name, rangeScores=5, numLabels=3, maxlen=36):
+
+    labelIdx_m = {"NEUTRAL":2, "ENTAILMENT":1, "CONTRADICTION":0}
+
+    a_s = os.path.join(data_dir, name+"/a.toks")
+    b_s = os.path.join(data_dir, name+"/b.toks")
+    sims = os.path.join(data_dir, name+"/sim.txt")
+    labs = os.path.join(data_dir, name+"/label.txt") 
+    a_p = os.path.join(data_dir, name+"/a.parents")
+    b_p = os.path.join(data_dir, name+"/b.parents")
+    a_r = os.path.join(data_dir, name+"/a.rels")
+    b_r = os.path.join(data_dir, name+"/b.rels")
+
+    data_size = len([line.rstrip('\n') for line in open(a_s)])
+
+    Y_scores_pred = np.zeros((data_size, rangeScores+1), dtype=np.float32)    
+    Y_scores = np.zeros((data_size), dtype=np.float32) 
+    labels = []
+
+    l_trees = []
+    r_trees = []
+
+    from collections import defaultdict
+    words = defaultdict(int)
+
+    from dependency_tree import DTree
+
+    vocab_path = os.path.join(data_dir, 'vocab-cased.txt')
+
+    with open(vocab_path, 'r') as f:
+        for tok in f:
+            words[tok.rstrip('\n')] += 1
+
+    vocab = dict(zip(words.iterkeys(),xrange(len(words))))
+    vocab["<UNK>"] = len(words) # Add unknown as word
+
+    rel_vocab_path = os.path.join(data_dir, 'rel_vocab.txt')
+
+    rels = defaultdict(int)
+
+    with open(rel_vocab_path, 'r') as f:
+        for tok in f:
+            rels[tok.rstrip('\n')] += 1
+
+    rel_vocab = dict(zip(rels.iterkeys(),xrange(len(rels))))
+
+    with open(a_s, 'rb') as f1, \
+         open(b_s, 'rb') as f2, \
+         open(sims, 'rb') as f3, \
+         open(labs, 'rb') as f4, \
+         open(a_p, 'rb') as f5, \
+         open(b_p, 'rb') as f6, \
+         open(a_r, 'rb') as f7, \
+         open(b_r, 'rb') as f8:                   
+
+        for i, (a, b, sim, ent, a_p, b_p, a_r, b_r) in enumerate(zip(f1,f2,f3,f4,f5,f6,f7,f8)):
+
+            a = a.rstrip('\n')
+            b = b.rstrip('\n')
+            sim = float(sim.rstrip('\n'))
+            ent = ent.rstrip('\n')
+
+            ceil = np.ceil(sim)
+            floor = np.floor(sim)
+            if ceil == floor:
+                Y_scores_pred[i, floor] = 1
+            else:
+                Y_scores_pred[i, floor] = ceil-sim 
+                Y_scores_pred[i, ceil] = sim-floor
+
+            label = labelIdx_m[ent]
+            Y_scores[i] = 0.25 * (sim -1)
+
+            labels.append(label)
+
+            toks_a = a.split()
+            toks_b = b.split()
+
+            a_p_l = a_p.rstrip('\n').split()
+            b_p_l = b_p.rstrip('\n').split()
+            a_r_l = a_r.rstrip('\n').split()
+            b_r_l = b_r.rstrip('\n').split()
+
+            dep_tree_a = DTree(toks_a, a_p_l, a_r_l,vocab,rel_vocab)
+            dep_tree_b = DTree(toks_b, b_p_l, b_r_l,vocab,rel_vocab)
+
+            l_trees.append(dep_tree_a)
+            r_trees.append(dep_tree_b)
+
+            """
+            for j in range(maxlen):
+                if j < maxlen - len(toks_a):
+                    X1[i,j] = vocab["<UNK>"]
+                else:
+                    X1[i, j] = vocab[toks_a[j-maxlen+len(toks_a)]]
+                    
+            for j in range(maxlen):
+                if j < maxlen - len(toks_b):
+                    X2[i,j] = vocab["<UNK>"]
+                else:
+                    X2[i,j] = vocab[toks_b[j-maxlen+len(toks_b)]]
+            """
+
+    Y_scores_pred = Y_scores_pred[:, 1:]
+    Y_labels = np.zeros((len(labels), numLabels))
+    for i in range(len(labels)):
+        Y_labels[i, labels[i]] = 1.
+
+    return l_trees, r_trees, Y_labels, Y_scores, Y_scores_pred
+
+
 if __name__ == '__main__':
 
     base_dir = os.path.dirname(os.path.realpath(__file__))
     data_dir = os.path.join(base_dir, 'data')
     sick_dir = os.path.join(data_dir, 'sick')
 
-    read_dataset(sick_dir, "train")
+    read_dataset_tree(sick_dir, "train")
+    read_dataset_tree(sick_dir, "dev")
+    read_dataset_tree(sick_dir, "test")
 
-
-
-    
-
-
-
-
-
-            

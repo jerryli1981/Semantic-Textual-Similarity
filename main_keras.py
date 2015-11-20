@@ -18,7 +18,7 @@ from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM, GRU
 from keras.regularizers import l2,activity_l2
 
-from utils import loadWord2VecMap, read_dataset, iterate_minibatches
+from utils import loadWord2VecMap, read_dataset, iterate_minibatches, read_dataset_E
 
 def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
  
@@ -27,26 +27,37 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
     #wordEmbeddings = wordEmbeddings[:args.wvecDim, :]
 
     l_lstm_1 = Sequential()
+    
+    """
     l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=300, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
+    """
+    #l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=300, input_length=maxlen))
+
     l_lstm_1.add(LSTM(output_dim=150, return_sequences=False, 
         input_shape=(maxlen, 300)))
-    #l_lstm_1.add(Dropout(0.1))
-    l_lstm_1.layers[1].regularizers = [l2(reg)] * 12
-    for i in range(12):    
-        l_lstm_1.layers[1].regularizers[i].set_param(l_lstm_1.layers[1].get_params()[0][i])
+    l_lstm_1.add(Dropout(0.1))
 
+    l_lstm_1.layers[0].regularizers = [l2(reg)] * 12
+    for i in range(12):    
+        l_lstm_1.layers[0].regularizers[i].set_param(l_lstm_1.layers[0].get_params()[0][i])
 
     l_lstm_2 = Sequential()
+    
+    """
     l_lstm_2.add(Embedding(input_dim=n_symbols, output_dim=300, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
+    """
+    #l_lstm_2.add(Embedding(input_dim=n_symbols, output_dim=300, input_length=maxlen))
+
     l_lstm_2.add(LSTM(output_dim=150, return_sequences=False, 
         input_shape=(maxlen, 300)))
-    #l_lstm_2.add(Dropout(0.1))
-    l_lstm_2.layers[1].regularizers = [l2(reg)] * 12
+    l_lstm_2.add(Dropout(0.1))
+    
+    l_lstm_2.layers[0].regularizers = [l2(reg)] * 12
     for i in range(12):    
-        l_lstm_2.layers[1].regularizers[i].set_param(l_lstm_2.layers[1].get_params()[0][i])
-
+        l_lstm_2.layers[0].regularizers[i].set_param(l_lstm_2.layers[0].get_params()[0][i])
+    
 
     l_mul = Sequential()
     l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
@@ -124,9 +135,9 @@ if __name__ == '__main__':
 
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     
-    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = read_dataset(sick_dir, "train")
-    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = read_dataset(sick_dir, "dev")
-    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = read_dataset(sick_dir, "test")
+    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = read_dataset_E(sick_dir, "train")
+    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = read_dataset_E(sick_dir, "dev")
+    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = read_dataset_E(sick_dir, "test")
 
     train_fn, val_fn, predict_proba= build_network(args, wordEmbeddings)
 

@@ -11,10 +11,11 @@ step=0.001
 numLabels=3
 rangeScores=5
 hiddenDim=50
-wvecDim=200
-miniBatch=25
+wvecDim=300
+miniBatch=30
 mlpActivation=sigmoid
 optimizer=adam
+repModel=LSTM
 task=sts
 
 
@@ -35,6 +36,15 @@ python -u main_lasagne.py --task $task --step $step --mlpActivation $mlpActivati
 				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
                   			--rangeScores $rangeScores	--numLabels $numLabels\
                   			--minibatch $miniBatch --wvecDim $wvecDim
+
+elif [ "$1" == "theano" ]
+then
+echo "run theano"
+python -u main_theano.py --repModel $repModel --step $step --mlpActivation $mlpActivation \
+				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
+                  			--rangeScores $rangeScores	--numLabels $numLabels\
+                  			--minibatch $miniBatch --wvecDim $wvecDim
+
 fi
 
 
