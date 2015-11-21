@@ -11,12 +11,13 @@ from scipy.stats import pearsonr
 sys.path.insert(0, os.path.abspath('../Lasagne'))
 
 from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer, FlattenLayer, EmbeddingLayer,\
-    ElemwiseMergeLayer, AbsLayer,ReshapeLayer, get_output, get_all_params,\
-    DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer, ConcatLayer
+    ElemwiseMergeLayer, AbsLayer,ReshapeLayer, get_output, get_all_params, get_output_shape, DropoutLayer,\
+    DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer, ConcatLayer, Pool1DLayer, FeaturePoolLayer
 
-from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params
-from lasagne.nonlinearities import tanh, sigmoid, softmax
-from lasagne.objectives import categorical_crossentropy
+from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params,\
+                                    regularize_network_params
+from lasagne.nonlinearities import tanh, sigmoid, softmax, rectify
+from lasagne.objectives import categorical_crossentropy, squared_error, categorical_accuracy
 from lasagne.updates import sgd, adagrad, adadelta, nesterov_momentum, rmsprop, adam
 
 from utils import read_sequence_dataset, iterate_minibatches,loadWord2VecMap
@@ -32,29 +33,62 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
     GRAD_CLIP = wordDim
 
     l1_in = InputLayer((None, maxlen),input_var=input1_var)
+    batchsize, seqlen = l1_in.input_var.shape
     l1_mask_in = InputLayer((None, maxlen),input_var=input1_mask_var)
     l1_emb = EmbeddingLayer(l1_in, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    l1_emb.params[l1_emb.W].remove('trainable')
+
     l_forward_1 = LSTMLayer(
         l1_emb, num_units=args.lstmDim, mask_input=l1_mask_in, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh)
-    l_forward_1 = SliceLayer(l_forward_1, indices=-1, axis=1)
 
+    
+    l_forward_1_b = LSTMLayer(
+        l1_emb, num_units=args.lstmDim, mask_input=l1_mask_in, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh, backwards=True)
+    l_forward_1 = SliceLayer(l_forward_1, indices=-1, axis=1) # out_shape (None, args.lstmDim)
+    l_forward_1_b = SliceLayer(l_forward_1_b, indices=0, axis=1) # out_shape (None, args.lstmDim)
+
+    l_forward_1 = ConcatLayer([l_forward_1, l_forward_1_b])
+    
+
+    """
+    l_forward_1 = SliceLayer(l_forward_1, indices=slice(-maxlen, None), axis=1)
+    l_forward_1 = FeaturePoolLayer(l_forward_1, pool_size=maxlen, axis=1, pool_function=T.mean)
+    l_forward_1 = ReshapeLayer(l_forward_1, ((batchsize, args.lstmDim)))
+    """
 
     l2_in = InputLayer((None, maxlen),input_var=input2_var)
     l2_mask_in = InputLayer((None, maxlen),input_var=input2_mask_var)
     l2_emb = EmbeddingLayer(l2_in, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    l2_emb.params[l2_emb.W].remove('trainable')
+
     l_forward_2 = LSTMLayer(
         l2_emb, num_units=args.lstmDim, mask_input=l2_mask_in, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh)
+
+    
+    l_forward_2_b = LSTMLayer(
+        l2_emb, num_units=args.lstmDim, mask_input=l2_mask_in, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh, backwards=True)
     l_forward_2 = SliceLayer(l_forward_2, indices=-1, axis=1)
+    l_forward_2_b = SliceLayer(l_forward_2_b, indices=0, axis=1)
+    l_forward_2 = ConcatLayer([l_forward_2, l_forward_2_b])
+
+    """
+    l_forward_2 = SliceLayer(l_forward_2, indices=slice(-maxlen, None), axis=1)
+    l_forward_2 = FeaturePoolLayer(l_forward_2, pool_size=maxlen, axis=1, pool_function=T.mean)
+    l_forward_2 = ReshapeLayer(l_forward_2, ((batchsize, args.lstmDim)))
+    """
 
     l12_mul = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
-    l12_sub = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub)
-    l12_sub = AbsLayer(l12_sub)
-
+    l12_sub = AbsLayer(ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub))
     l12_concat = ConcatLayer([l12_mul, l12_sub])
 
-    l_hid = DenseLayer(l12_concat, num_units=2*args.hiddenDim, nonlinearity=sigmoid)
+    #l12_concat = DropoutLayer(l12_concat, p=0.2)
+
+    l_hid = DenseLayer(l12_concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
+
 
     if args.task == "sts":
         network = DenseLayer(
@@ -66,9 +100,13 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
 
     prediction = get_output(network)
 
-    loss = T.mean(categorical_crossentropy(prediction, target_var))
 
+    loss = T.mean( T.sum( target_var * ( T.log(target_var+ 1e-16) - T.log(prediction)), axis=1))
+    #loss = T.mean(categorical_crossentropy(prediction, target_var))
+    #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
+    loss += 0.5 * 0.0001 * regularize_network_params(network, l2)
     #layers = {l12_mul_Dense:0.1, l12_sub_Dense:0.1, l_out_Dense:0.5}
+
 
     #l2_penalty = regularize_layer_params_weighted(layers, l2)
     #l1_penalty = regularize_layer_params(l_out_Dense, l1) * 1e-4
@@ -91,10 +129,9 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
     else:
         raise "Need set optimizer correctly"
  
-
     test_prediction = get_output(network, deterministic=True)
-    test_loss = categorical_crossentropy(test_prediction, target_var)
-    test_loss = test_loss.mean()
+    #test_loss = T.mean(categorical_crossentropy(test_prediction, target_var))
+    test_loss = T.mean( T.sum( target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction)), axis=1))
 
     train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], loss, 
         updates=updates, allow_input_downcast=True)
@@ -104,7 +141,8 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
             [test_loss, test_prediction], allow_input_downcast=True)
 
     elif args.task == "ent":
-        test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
 
         val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
             [test_loss, test_acc], allow_input_downcast=True)
@@ -304,11 +342,7 @@ if __name__ == '__main__':
     input2_var = T.imatrix('inputs_2')
     input1_mask_var = T.matrix('inputs_mask_1')
     input2_mask_var = T.matrix('inputs_mask_2')
-
-    if args.task=="sts":
-        target_var = T.fmatrix('targets')
-    elif args.task=="ent":
-        target_var = T.ivector('targets')
+    target_var = T.fmatrix('targets')
 
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     wordEmbeddings = wordEmbeddings.astype(np.float32)
