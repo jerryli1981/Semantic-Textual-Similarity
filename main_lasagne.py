@@ -10,14 +10,106 @@ from scipy.stats import pearsonr
 
 sys.path.insert(0, os.path.abspath('../Lasagne'))
 
-from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer, FlattenLayer,\
-    ElemwiseMergeLayer, AbsLayer,ReshapeLayer,DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer
+from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer, FlattenLayer, EmbeddingLayer,\
+    ElemwiseMergeLayer, AbsLayer,ReshapeLayer, get_output, get_all_params,\
+    DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer, ConcatLayer
 
 from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params
+from lasagne.nonlinearities import tanh, sigmoid, softmax
+from lasagne.objectives import categorical_crossentropy
+from lasagne.updates import sgd, adagrad, adadelta, nesterov_momentum, rmsprop, adam
 
-from utils import load_data_embedding
+from utils import read_sequence_dataset, iterate_minibatches,loadWord2VecMap
 
-from utils import iterate_minibatches
+
+def build_network_ACL15(args, input1_var, input1_mask_var, 
+        input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
+
+    print("Building model ...")
+
+    vocab_size = wordEmbeddings.shape[1]
+    wordDim = wordEmbeddings.shape[0]
+    GRAD_CLIP = wordDim
+
+    l1_in = InputLayer((None, maxlen),input_var=input1_var)
+    l1_mask_in = InputLayer((None, maxlen),input_var=input1_mask_var)
+    l1_emb = EmbeddingLayer(l1_in, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    l_forward_1 = LSTMLayer(
+        l1_emb, num_units=args.lstmDim, mask_input=l1_mask_in, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
+    l_forward_1 = SliceLayer(l_forward_1, indices=-1, axis=1)
+
+
+    l2_in = InputLayer((None, maxlen),input_var=input2_var)
+    l2_mask_in = InputLayer((None, maxlen),input_var=input2_mask_var)
+    l2_emb = EmbeddingLayer(l2_in, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    l_forward_2 = LSTMLayer(
+        l2_emb, num_units=args.lstmDim, mask_input=l2_mask_in, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
+    l_forward_2 = SliceLayer(l_forward_2, indices=-1, axis=1)
+
+    l12_mul = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
+    l12_sub = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub)
+    l12_sub = AbsLayer(l12_sub)
+
+    l12_concat = ConcatLayer([l12_mul, l12_sub])
+
+    l_hid = DenseLayer(l12_concat, num_units=2*args.hiddenDim, nonlinearity=sigmoid)
+
+    if args.task == "sts":
+        network = DenseLayer(
+                l_hid, num_units=5,nonlinearity=softmax)
+
+    elif args.task == "ent":
+        network = DenseLayer(
+                l_hid, num_units=3,nonlinearity=softmax)
+
+    prediction = get_output(network)
+
+    loss = T.mean(categorical_crossentropy(prediction, target_var))
+
+    #layers = {l12_mul_Dense:0.1, l12_sub_Dense:0.1, l_out_Dense:0.5}
+
+    #l2_penalty = regularize_layer_params_weighted(layers, l2)
+    #l1_penalty = regularize_layer_params(l_out_Dense, l1) * 1e-4
+    #loss = loss + l2_penalty + l1_penalty
+
+    params = get_all_params(network, trainable=True)
+
+    if args.optimizer == "sgd":
+        updates = sgd(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adagrad":
+        updates = adagrad(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adadelta":
+        updates = adadelta(loss, params, learning_rate=args.step)
+    elif args.optimizer == "nesterov":
+        updates = nesterov_momentum(loss, params, learning_rate=args.step)
+    elif args.optimizer == "rms":
+        updates = rmsprop(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adam":
+        updates = adam(loss, params, learning_rate=args.step)
+    else:
+        raise "Need set optimizer correctly"
+ 
+
+    test_prediction = get_output(network, deterministic=True)
+    test_loss = categorical_crossentropy(test_prediction, target_var)
+    test_loss = test_loss.mean()
+
+    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], loss, 
+        updates=updates, allow_input_downcast=True)
+
+    if args.task == "sts":
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_prediction], allow_input_downcast=True)
+
+    elif args.task == "ent":
+        test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_acc], allow_input_downcast=True)
+
+    return train_fn, val_fn
 
 
 def build_network(args, input1_var=None, input2_var=None, target_var=None, maxlen=36):
@@ -189,41 +281,40 @@ if __name__ == '__main__':
     parser.add_argument("--optimizer",dest="optimizer",type=str,default="adagrad")
     parser.add_argument("--epochs",dest="epochs",type=int,default=20)
     parser.add_argument("--step",dest="step",type=float,default=0.01)
-    parser.add_argument("--rangeScores",dest="rangeScores",type=int,default=5)
-    parser.add_argument("--numLabels",dest="numLabels",type=int,default=3)
     parser.add_argument("--hiddenDim",dest="hiddenDim",type=int,default=50)
-    parser.add_argument("--wvecDim",dest="wvecDim",type=int,default=30)
-    parser.add_argument("--mlpActivation",dest="mlpActivation",type=str,default="sigmoid")
+    parser.add_argument("--lstmDim",dest="lstmDim",type=int,default=30)
     parser.add_argument("--task",dest="task",type=str,default=None)
     args = parser.parse_args()
 
 
     # Load the dataset
     print("Loading data...")
-    import dependency_tree as tr     
-    trainTrees = tr.loadTrees("train")
-    devTrees = tr.loadTrees("dev")
-    testTrees = tr.loadTrees("test")
-    
-    print "train number %d"%len(trainTrees)
-    print "dev number %d"%len(devTrees)
-    print "test number %d"%len(testTrees)
+    base_dir = os.path.dirname(os.path.realpath(__file__))
+    data_dir = os.path.join(base_dir, 'data')
+    sick_dir = os.path.join(data_dir, 'sick')
 
-    wordEmbeddings = tr.loadWord2VecMap()[:args.wvecDim, :]
-    
-    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = load_data(trainTrees, wordEmbeddings, args)
-    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = load_data(devTrees, wordEmbeddings, args)
-    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = load_data(testTrees, wordEmbeddings, args)
+    X1_train, X1_mask_train, X2_train, X2_mask_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = \
+        read_sequence_dataset(sick_dir, "train")
+    X1_dev, X1_mask_dev, X2_dev, X2_mask_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = \
+        read_sequence_dataset(sick_dir, "dev")
+    X1_test, X1_mask_test, X2_test, X2_mask_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = \
+        read_sequence_dataset(sick_dir, "test")
 
-    input1_var = T.tensor3('inputs_1')
-    input2_var = T.tensor3('inputs_2')
+    input1_var = T.imatrix('inputs_1')
+    input2_var = T.imatrix('inputs_2')
+    input1_mask_var = T.matrix('inputs_mask_1')
+    input2_mask_var = T.matrix('inputs_mask_2')
 
     if args.task=="sts":
         target_var = T.fmatrix('targets')
     elif args.task=="ent":
         target_var = T.ivector('targets')
 
-    train_fn, val_fn = build_network(args, input1_var, input2_var, target_var)
+    wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
+    wordEmbeddings = wordEmbeddings.astype(np.float32)
+
+    train_fn, val_fn = build_network_ACL15(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
+        target_var, wordEmbeddings)
 
     print("Starting training...")
     best_val_acc = 0
@@ -232,15 +323,15 @@ if __name__ == '__main__':
         train_err = 0
         train_batches = 0
         start_time = time.time()
-        for batch in iterate_minibatches(X1_train, X2_train, Y_labels_train,
+        for batch in iterate_minibatches(X1_train, X1_mask_train, X2_train, X2_mask_train, Y_labels_train,
             Y_scores_train, Y_scores_pred_train, args.minibatch, shuffle=True):
 
-            inputs1, inputs2, labels, scores, scores_pred = batch
+            inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
-                train_err += train_fn(inputs1, inputs2, scores_pred)
+                train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
             elif args.task == "ent":
-                train_err += train_fn(inputs1, inputs2, labels)
+                train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
             else:
                 raise "task need to be set"
 
@@ -251,14 +342,14 @@ if __name__ == '__main__':
         val_batches = 0
         val_pearson = 0
 
-        for batch in iterate_minibatches(X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, 
+        for batch in iterate_minibatches(X1_dev, X1_mask_dev, X2_dev, X2_mask_dev, Y_labels_dev, Y_scores_dev, 
             Y_scores_pred_dev, len(X1_dev), shuffle=False):
 
-            inputs1, inputs2, labels, scores, scores_pred = batch
+            inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
 
-                err, preds = val_fn(inputs1, inputs2, scores_pred)
+                err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
                 predictScores = preds.dot(np.array([1,2,3,4,5]))
                 guesses = predictScores.tolist()
                 scores = scores.tolist()
@@ -266,7 +357,7 @@ if __name__ == '__main__':
                 val_pearson += pearson_score 
 
             elif args.task == "ent":
-                err, acc = val_fn(inputs1, inputs2, labels)
+                err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
                 val_acc += acc
 
             val_err += err
@@ -298,14 +389,14 @@ if __name__ == '__main__':
     test_acc = 0
     test_pearson = 0
     test_batches = 0
-    for batch in iterate_minibatches(X1_test, X2_test, Y_labels_test, 
+    for batch in iterate_minibatches(X1_test, X1_mask_test, X2_test, X2_mask_test, Y_labels_test, 
         Y_scores_test, Y_scores_pred_test, len(X1_test), shuffle=False):
 
-        inputs1, inputs2, labels, scores, scores_pred = batch
+        inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
         if args.task == "sts":
 
-            err, preds = val_fn(inputs1, inputs2, scores_pred)
+            err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
             predictScores = preds.dot(np.array([1,2,3,4,5]))
             guesses = predictScores.tolist()
             scores = scores.tolist()
@@ -313,7 +404,7 @@ if __name__ == '__main__':
             test_pearson += pearson_score 
 
         elif args.task == "ent":
-            err, acc = val_fn(inputs1, inputs2, labels)
+            err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
             test_acc += acc
 
 
