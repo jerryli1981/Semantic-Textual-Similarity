@@ -7,11 +7,11 @@ set -x
 
 # training params
 epochs=100
-step=0.001
+step=0.05
 hiddenDim=50
 lstmDim=150
 miniBatch=25
-optimizer=adam
+optimizer=adagrad #adagrad 0.05 = adam 0.001, rms 0.01
 
 export THEANO_FLAGS=mode=FAST_RUN,device=$1,floatX=float32
 
