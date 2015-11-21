@@ -8,42 +8,38 @@ set -x
 # training params
 epochs=100
 step=0.001
-numLabels=3
-rangeScores=5
 hiddenDim=50
-wvecDim=100
-miniBatch=10
-mlpActivation=sigmoid
+lstmDim=150
+miniBatch=25
 optimizer=adam
-repModel=LSTM
-task=sts
 
+export THEANO_FLAGS=mode=FAST_RUN,device=$1,floatX=float32
 
-export THEANO_FLAGS=mode=FAST_RUN,device=$2,floatX=float32
-
-if [ "$1" == "keras" ]
+if [ "$2" == "keras" ]
 then
 echo "run keras"
-python -u main_keras.py --task $task --step $step --mlpActivation $mlpActivation \
-				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
-                  			--rangeScores $rangeScores	--numLabels $numLabels\
-                  			--minibatch $miniBatch --wvecDim $wvecDim
 
-elif [ "$1" == "lasagne" ]
+task=$3
+
+python -u main_keras.py --task $task --step $step \
+				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
+                  			--minibatch $miniBatch --lstmDim $lstmDim
+
+elif [ "$2" == "lasagne" ]
 then
 echo "run lasagne"
-python -u main_lasagne.py --task $task --step $step --mlpActivation $mlpActivation \
-				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
-                  			--rangeScores $rangeScores	--numLabels $numLabels\
-                  			--minibatch $miniBatch --wvecDim $wvecDim
 
-elif [ "$1" == "theano" ]
+task=$3
+
+python -u main_lasagne.py --task $task --step $step \
+				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
+                  			--minibatch $miniBatch --lstmDim $lstmDim
+
+elif [ "$2" == "theano" ]
 then
 echo "run theano"
-python -u main_theano.py --repModel $repModel --step $step  \
-				  --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
-                  			--rangeScores $rangeScores\
-                  			--minibatch $miniBatch --wvecDim $wvecDim
+python -u main_theano.py --step $step --optimizer $optimizer --hiddenDim $hiddenDim --epochs $epochs \
+                  			--minibatch $miniBatch --lstmDim $lstmDim
 
 fi
 
