@@ -251,8 +251,10 @@ def read_tree_dataset(data_dir, name, rangeScores=5, numLabels=3, maxlen=36):
         for tok in f:
             words[tok.rstrip('\n')] += 1
 
-    vocab = dict(zip(words.iterkeys(),xrange(len(words))))
-    vocab["<UNK>"] = len(words) # Add unknown as word
+    vocab = {}
+    vocab["<UNK>"] = 0
+    for word, idx in zip(words.iterkeys(), xrange(1, len(words)+1)):
+        vocab[word] = idx
 
     rel_vocab_path = os.path.join(data_dir, 'rel_vocab.txt')
 
@@ -307,19 +309,6 @@ def read_tree_dataset(data_dir, name, rangeScores=5, numLabels=3, maxlen=36):
             l_trees.append(dep_tree_a)
             r_trees.append(dep_tree_b)
 
-            """
-            for j in range(maxlen):
-                if j < maxlen - len(toks_a):
-                    X1[i,j] = vocab["<UNK>"]
-                else:
-                    X1[i, j] = vocab[toks_a[j-maxlen+len(toks_a)]]
-                    
-            for j in range(maxlen):
-                if j < maxlen - len(toks_b):
-                    X2[i,j] = vocab["<UNK>"]
-                else:
-                    X2[i,j] = vocab[toks_b[j-maxlen+len(toks_b)]]
-            """
 
     Y_scores_pred = Y_scores_pred[:, 1:]
     Y_labels = np.zeros((len(labels), numLabels))

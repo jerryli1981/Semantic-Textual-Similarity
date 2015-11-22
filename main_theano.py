@@ -154,11 +154,7 @@ def build_network(args, wordEmbeddings, L1_reg=0.00, L2_reg=1e-4):
         for tok in f:
             rels[tok.rstrip('\n')] += 1
 
-
-    if args.repModel == "RNN":
-        rep_model = depTreeRnnModel(len(rels), args.wvecDim)
-    elif args.repModel == "LSTM":
-        rep_model = depTreeLSTMModel(args.wvecDim)
+    rep_model = depTreeLSTMModel(args.lstmDim)
 
     rep_model.initialParams(wordEmbeddings, rng=rng)
 
@@ -168,7 +164,7 @@ def build_network(args, wordEmbeddings, L1_reg=0.00, L2_reg=1e-4):
     x = T.fmatrix('x')  # n * d, the data is presented as one sentence output    
     y = T.fmatrix('y')  # n * d, the target distribution\
 
-    classifier = MLP(rng=rng,input=x, n_in=2*rep_model.wvecDim, n_hidden=args.hiddenDim,n_out=args.rangeScores)
+    classifier = MLP(rng=rng,input=x, n_in=2*args.lstmDim, n_hidden=args.hiddenDim,n_out=5)
 
     cost = T.mean(classifier.kl_divergence(y)) + 0.5*L2_reg * classifier.L2_sqr
 
@@ -222,7 +218,7 @@ def train(args, rep_model, rnn_optimizer, update_params_theano, delta_x, batchDa
 
     l_trees, r_trees, Y_labels, Y_scores, Y_scores_pred = batchData
 
-    vec_feats = np.zeros((len(l_trees), 2*args.wvecDim))
+    vec_feats = np.zeros((len(l_trees), 2*args.lstmDim))
 
     for i, (l_t, r_t, td) in enumerate(zip(l_trees, r_trees, Y_scores_pred)):
 
@@ -238,7 +234,7 @@ def train(args, rep_model, rnn_optimizer, update_params_theano, delta_x, batchDa
 
         vec_feat_2d = vec_feat.reshape((1, 2*rep_model.wvecDim))
 
-        td_2d = td.reshape((1, args.rangeScores))
+        td_2d = td.reshape((1, 5))
 
         delta = delta_x(vec_feat_2d, td_2d)
         delta_mul = delta[:rep_model.wvecDim]
@@ -461,14 +457,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Usage")
 
-    parser.add_argument("--minibatch",dest="minibatch",type=int,default=25)
+    parser.add_argument("--minibatch",dest="minibatch",type=int,default=30)
     parser.add_argument("--optimizer",dest="optimizer",type=str,default="adagrad")
-    parser.add_argument("--epochs",dest="epochs",type=int,default=10)
-    parser.add_argument("--step",dest="step",type=float,default=0.05)
-    parser.add_argument("--rangeScores",dest="rangeScores",type=int,default=5)
+    parser.add_argument("--epochs",dest="epochs",type=int,default=20)
+    parser.add_argument("--step",dest="step",type=float,default=0.01)
     parser.add_argument("--hiddenDim",dest="hiddenDim",type=int,default=50)
-    parser.add_argument("--wvecDim",dest="wvecDim",type=int,default=150)
-    parser.add_argument("--repModel",dest="repModel",type=str,default="RNN")
+    parser.add_argument("--lstmDim",dest="lstmDim",type=int,default=30)
     args = parser.parse_args()
 
      # Load the dataset
