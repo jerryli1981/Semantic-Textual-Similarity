@@ -43,19 +43,18 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
         nonlinearity=tanh)
 
 
-    
+    """
     l_forward_1_b = LSTMLayer(
         l1_emb, num_units=args.lstmDim, mask_input=l1_mask_in, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh, backwards=True)
-    
+    """
+
     l_forward_1 = SliceLayer(l_forward_1_lstm, indices=-1, axis=1) # out_shape (None, args.lstmDim)
     
-    l_forward_1_b = SliceLayer(l_forward_1_b, indices=0, axis=1) # out_shape (None, args.lstmDim)
-
-    l_forward_1 = ConcatLayer([l_forward_1, l_forward_1_b])
-    
-
     """
+    l_forward_1_b = SliceLayer(l_forward_1_b, indices=0, axis=1) # out_shape (None, args.lstmDim)
+    l_forward_1 = ConcatLayer([l_forward_1, l_forward_1_b])
+    #########################
     l_forward_1 = SliceLayer(l_forward_1, indices=slice(-maxlen, None), axis=1)
     l_forward_1 = FeaturePoolLayer(l_forward_1, pool_size=maxlen, axis=1, pool_function=T.mean)
     l_forward_1 = ReshapeLayer(l_forward_1, ((batchsize, args.lstmDim)))
@@ -70,16 +69,18 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
         l2_emb, num_units=args.lstmDim, mask_input=l2_mask_in, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh)
 
-    
+    """
     l_forward_2_b = LSTMLayer(
         l2_emb, num_units=args.lstmDim, mask_input=l2_mask_in, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh, backwards=True)
-    
+    """
+
     l_forward_2 = SliceLayer(l_forward_2_lstm, indices=-1, axis=1)
+
+    """"
     l_forward_2_b = SliceLayer(l_forward_2_b, indices=0, axis=1)
     l_forward_2 = ConcatLayer([l_forward_2, l_forward_2_b])
-
-    """
+    #######################
     l_forward_2 = SliceLayer(l_forward_2, indices=slice(-maxlen, None), axis=1)
     l_forward_2 = FeaturePoolLayer(l_forward_2, pool_size=maxlen, axis=1, pool_function=T.mean)
     l_forward_2 = ReshapeLayer(l_forward_2, ((batchsize, args.lstmDim)))

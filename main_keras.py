@@ -13,7 +13,7 @@ from keras.preprocessing import sequence
 from keras.optimizers import SGD, Adam, RMSprop, Adagrad, Adadelta
 from keras.utils import np_utils
 from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Activation, Merge, Flatten
+from keras.layers.core import Dense, Dropout, Activation, Merge, Flatten, Masking
 from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM, GRU
 from keras.regularizers import l2,activity_l2
@@ -23,40 +23,48 @@ from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset
 def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
  
     print("Building model ...")
-    n_symbols = wordEmbeddings.shape[1]
-    #wordEmbeddings = wordEmbeddings[:args.wvecDim, :]
+    vocab_size = wordEmbeddings.shape[1]
+    wordDim = wordEmbeddings.shape[0]
 
     l_lstm_1 = Sequential()
-    
     """
-    l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=300, 
+    M_1 = Masking(mask_value=vocab_size-1)
+    M_1._input_shape = (maxlen, wordDim)
+    l_lstm_1.add(M_1)
+    """
+    l_lstm_1.add(Embedding(input_dim=vocab_size, output_dim=wordDim, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
-    """
+
     #l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=300, input_length=maxlen))
 
-    l_lstm_1.add(LSTM(output_dim=150, return_sequences=False, 
-        input_shape=(maxlen, 300)))
+    l_lstm_1.add(LSTM(output_dim=args.lstmDim, return_sequences=False, 
+        input_shape=(maxlen, wordDim)))
     l_lstm_1.add(Dropout(0.1))
 
-    l_lstm_1.layers[0].regularizers = [l2(reg)] * 12
+    l_lstm_1.layers[1].regularizers = [l2(reg)] * 12
     for i in range(12):    
-        l_lstm_1.layers[0].regularizers[i].set_param(l_lstm_1.layers[0].get_params()[0][i])
+        l_lstm_1.layers[1].regularizers[i].set_param(l_lstm_1.layers[1].get_params()[0][i])
 
     l_lstm_2 = Sequential()
+
+    """
+    M_2 = Masking(mask_value=vocab_size-1)
+    M_2._input_shape = (maxlen, wordDim)
+    l_lstm_2.add(M_2)
+    """
     
-    """
-    l_lstm_2.add(Embedding(input_dim=n_symbols, output_dim=300, 
+    l_lstm_2.add(Embedding(input_dim=vocab_size, output_dim=wordDim, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
-    """
+    
     #l_lstm_2.add(Embedding(input_dim=n_symbols, output_dim=300, input_length=maxlen))
 
-    l_lstm_2.add(LSTM(output_dim=150, return_sequences=False, 
-        input_shape=(maxlen, 300)))
+    l_lstm_2.add(LSTM(output_dim=args.lstmDim, return_sequences=False, 
+        input_shape=(maxlen, wordDim)))
     l_lstm_2.add(Dropout(0.1))
     
-    l_lstm_2.layers[0].regularizers = [l2(reg)] * 12
+    l_lstm_2.layers[1].regularizers = [l2(reg)] * 12
     for i in range(12):    
-        l_lstm_2.layers[0].regularizers[i].set_param(l_lstm_2.layers[0].get_params()[0][i])
+        l_lstm_2.layers[1].regularizers[i].set_param(l_lstm_2.layers[1].get_params()[0][i])
     
 
     l_mul = Sequential()
@@ -69,20 +77,15 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
 
     model = Sequential()
     model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
-    model.add(Dense(output_dim=300,W_regularizer=l2(reg),b_regularizer=l2(reg)))
+    model.add(Dense(output_dim=2*args.lstmDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
     #model.add(Merge([l_mul,l_sub], mode='sum'))
 
-    if args.mlpActivation == "sigmoid":
-        model.add(Activation('sigmoid'))
-    elif args.mlpActivation == "tanh":
-        model.add(Activation('tanh'))
-    elif args.mlpActivation == "relu":
-        model.add(Activation('relu'))
+    model.add(Activation('sigmoid'))
 
     if args.task=="sts":
-        model.add(Dense(args.rangeScores,W_regularizer=l2(reg), b_regularizer=l2(reg)))
+        model.add(Dense(5,W_regularizer=l2(reg), b_regularizer=l2(reg)))
     elif args.task == "ent":
-        model.add(Dense(args.numLabels,W_regularizer=l2(reg), b_regularizer=l2(reg)))
+        model.add(Dense(3,W_regularizer=l2(reg), b_regularizer=l2(reg)))
 
     model.add(Activation('softmax'))
 
@@ -116,14 +119,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Usage")
 
     parser.add_argument("--minibatch",dest="minibatch",type=int,default=30)
-    parser.add_argument("--optimizer",dest="optimizer",type=str,default="sgd")
-    parser.add_argument("--epochs",dest="epochs",type=int,default=5)
+    parser.add_argument("--optimizer",dest="optimizer",type=str,default="adagrad")
+    parser.add_argument("--epochs",dest="epochs",type=int,default=20)
     parser.add_argument("--step",dest="step",type=float,default=0.01)
-    parser.add_argument("--rangeScores",dest="rangeScores",type=int,default=5)
-    parser.add_argument("--numLabels",dest="numLabels",type=int,default=3)
     parser.add_argument("--hiddenDim",dest="hiddenDim",type=int,default=50)
-    parser.add_argument("--wvecDim",dest="wvecDim",type=int,default=30)
-    parser.add_argument("--mlpActivation",dest="mlpActivation",type=str,default="sigmoid")
+    parser.add_argument("--lstmDim",dest="lstmDim",type=int,default=30)
     parser.add_argument("--task",dest="task",type=str,default=None)
     args = parser.parse_args()
 
@@ -135,9 +135,15 @@ if __name__ == '__main__':
 
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     
-    X1_train, X2_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = read_dataset_E(sick_dir, "train")
-    X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = read_dataset_E(sick_dir, "dev")
-    X1_test, X2_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = read_dataset_E(sick_dir, "test")
+    X1_train, X1_mask_train, X2_train, X2_mask_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = \
+        read_sequence_dataset(sick_dir, "train")
+    X1_dev, X1_mask_dev, X2_dev, X2_mask_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = \
+        read_sequence_dataset(sick_dir, "dev")
+    X1_test, X1_mask_test, X2_test, X2_mask_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = \
+        read_sequence_dataset(sick_dir, "test")
+
+    wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
+    wordEmbeddings = wordEmbeddings.astype(np.float32)
 
     train_fn, val_fn, predict_proba= build_network(args, wordEmbeddings)
 
@@ -148,10 +154,10 @@ if __name__ == '__main__':
         train_err = 0
         train_batches = 0
         start_time = time.time()
-        for batch in iterate_minibatches(X1_train, X2_train, Y_labels_train,
+        for batch in iterate_minibatches(X1_train, X1_mask_train, X2_train, X2_mask_train, Y_labels_train,
             Y_scores_train, Y_scores_pred_train, args.minibatch, shuffle=True):
 
-            inputs1, inputs2, labels, scores, scores_pred = batch
+            inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
                 train_err += train_fn([inputs1, inputs2], scores_pred)
@@ -167,10 +173,10 @@ if __name__ == '__main__':
         val_batches = 0
         val_pearson = 0
 
-        for batch in iterate_minibatches(X1_dev, X2_dev, Y_labels_dev, Y_scores_dev, 
+        for batch in iterate_minibatches(X1_dev, X1_mask_dev, X2_dev, X2_mask_dev, Y_labels_dev, Y_scores_dev, 
             Y_scores_pred_dev, len(X1_dev), shuffle=False):
 
-            inputs1, inputs2, labels, scores, scores_pred = batch
+            inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
 
@@ -215,10 +221,10 @@ if __name__ == '__main__':
     test_acc = 0
     test_pearson = 0
     test_batches = 0
-    for batch in iterate_minibatches(X1_test, X2_test, Y_labels_test, 
+    for batch in iterate_minibatches(X1_test, X1_mask_test, X2_test, X2_mask_test, Y_labels_test, 
         Y_scores_test, Y_scores_pred_test, len(X1_test), shuffle=False):
 
-        inputs1, inputs2, labels, scores, scores_pred = batch
+        inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
         if args.task == "sts":
             err = val_fn([inputs1, inputs2], scores_pred)
