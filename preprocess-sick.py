@@ -82,6 +82,7 @@ def build_word2Vector(glove_path, sick_dir, vocab_name):
 
     print "building word2vec"
     from collections import defaultdict
+    import numpy as np
     words = defaultdict(int)
 
     vocab_path = os.path.join(sick_dir, 'vocab-cased.txt')
@@ -90,34 +91,37 @@ def build_word2Vector(glove_path, sick_dir, vocab_name):
         for tok in f:
             words[tok.rstrip('\n')] += 1
 
-    vocab = dict(zip(words.iterkeys(),xrange(len(words))))
-    vocab["<UNK>"] = len(words) # Add unknown as word
+    vocab = {}
+    vocab["<UNK>"] = 0
+    for word, idx in zip(words.iterkeys(), xrange(1, len(words)+1)):
+        vocab[word] = idx
 
+    print "word size", len(words)
+    print "vocab size", len(vocab)
+
+
+    word_embedding_matrix = np.zeros(shape=(300, len(vocab)))  
+    
     import gzip
-    import numpy as np
-    word_vecs = {}
-    with gzip.open(glove_path, "rb") as f:
+    wordSet = defaultdict(int)
+
+    with open(glove_path, "rb") as f:
         for line in f:
            toks = line.split(' ')
            word = toks[0]
            if word in vocab:
-               word_vecs[word] = np.fromiter(toks[1:], dtype='float32')  
-               
-    k = 300
-    min_df = 1
+                wordIdx = vocab[word]
+                word_embedding_matrix[:,wordIdx] = np.fromiter(toks[1:], dtype='float32')
+                wordSet[word] +=1
     
+    count = 0   
     for word in vocab:
-        if word not in word_vecs and vocab[word] >= min_df:
-            word_vecs[word] = np.random.uniform(-0.05,0.05,k) 
-
-    assert len(vocab) == len(word_vecs), "length of vocab mush equal with word_vecs"   
-
-    vocab_size = len(word_vecs)
-    word_embedding_matrix = np.zeros(shape=(k,vocab_size))            
-
-    for i, word in enumerate(word_vecs):
-        word_embedding_matrix[:,i] = word_vecs[word]
-
+        if word not in wordSet:
+            wordIdx = vocab[word]
+            count += 1
+            word_embedding_matrix[:,wordIdx] = np.random.uniform(-0.05,0.05, 300) 
+    
+    print "Number of words not in glove ", count
     import cPickle as pickle
     with open(os.path.join(sick_dir, 'word2vec.bin'),'w') as fid:
         pickle.dump(word_embedding_matrix,fid)
@@ -148,6 +152,7 @@ if __name__ == '__main__':
     split(os.path.join(sick_dir, 'SICK_test_annotated.txt'), test_dir)
 
     # parse sentences
+    """
     parse(train_dir, cp=classpath)
     parse(dev_dir, cp=classpath)
     parse(test_dir, cp=classpath)
@@ -166,7 +171,7 @@ if __name__ == '__main__':
         glob.glob(os.path.join(sick_dir, '*/*.rels')),
         os.path.join(sick_dir, 'rel_vocab.txt'))
 
-
-    glove_path = os.path.join(base_dir, 'glove.6B.300d.txt.gz')
+    """
+    glove_path = os.path.join(base_dir, 'glove.840B.300d.txt')
     vocab_path = os.path.join(sick_dir, 'vocab-cased.txt')
     build_word2Vector(glove_path, sick_dir, 'vocab-cased.txt')
