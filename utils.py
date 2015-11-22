@@ -162,8 +162,10 @@ def read_sequence_dataset(dataset_dir, dataset_name, maxlen=36):
         for tok in f:
             words[tok.rstrip('\n')] += 1
 
-    vocab = dict(zip(words.iterkeys(),xrange(len(words))))
-    vocab["<UNK>"] = len(words) # Add unknown as word
+    vocab = {}
+    vocab["<UNK>"] = 0
+    for word, idx in zip(words.iterkeys(), xrange(1, len(words)+1)):
+        vocab[word] = idx
 
     with open(a_s, "rb") as f1, \
          open(b_s, "rb") as f2, \
