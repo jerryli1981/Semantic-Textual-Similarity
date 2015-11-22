@@ -15,7 +15,7 @@ from mlp import MLP
 
 from collections import defaultdict, OrderedDict
 
-from utils import iterate_minibatches_tree, loadWord2VecMap,read_dataset_tree
+from utils import iterate_minibatches_tree, loadWord2VecMap,read_tree_dataset
 
 import autograd.numpy as auto_grad_np
 from autograd import grad, elementwise_grad
@@ -170,8 +170,7 @@ def build_network(args, wordEmbeddings, L1_reg=0.00, L2_reg=1e-4):
 
     classifier = MLP(rng=rng,input=x, n_in=2*rep_model.wvecDim, n_hidden=args.hiddenDim,n_out=args.rangeScores)
 
-    cost = T.mean(classifier.kl_divergence(y)) + L1_reg * classifier.L1 + 0.5*L2_reg * classifier.L2_sqr
-    #cost = classifier.kl_divergence(y) + L1_reg * classifier.L1 + 0.5*L2_reg * classifier.L2_sqr
+    cost = T.mean(classifier.kl_divergence(y)) + 0.5*L2_reg * classifier.L2_sqr
 
     gparams = [ T.grad(cost, param) for param in classifier.params]
 
@@ -480,9 +479,9 @@ if __name__ == '__main__':
 
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     
-    trainTrees = read_dataset_tree(sick_dir, "train")
-    devTrees = read_dataset_tree(sick_dir, "dev")
-    testTrees = read_dataset_tree(sick_dir, "test")
+    trainTrees = read_tree_dataset(sick_dir, "train")
+    devTrees = read_tree_dataset(sick_dir, "dev")
+    testTrees = read_tree_dataset(sick_dir, "test")
 
     rep_model, rnn_optimizer, update_params_theano, delta_x, cost_and_prob = build_network(args, wordEmbeddings)
 

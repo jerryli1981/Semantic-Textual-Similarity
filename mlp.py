@@ -49,7 +49,10 @@ class LogisticRegression(object):
                 
     def kl_divergence(self, y):
 
-        #return T.sum(y * (T.log(y) - T.log(self.p_y_given_x))) / y.shape[0]
+        return y * ( T.log(y+ 1e-16) - T.log(self.p_y_given_x))
+
+    def categorical_crossentropy(self, y):
+
         return T.nnet.categorical_crossentropy(self.p_y_given_x, y)
 
 
@@ -113,6 +116,7 @@ class MLP(object):
 
 
         self.kl_divergence = self.logRegressionLayer.kl_divergence
+        self.categorical_crossentropy = self.logRegressionLayer.categorical_crossentropy
 
         self.output = self.logRegressionLayer.p_y_given_x
 

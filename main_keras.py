@@ -18,7 +18,7 @@ from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM, GRU
 from keras.regularizers import l2,activity_l2
 
-from utils import loadWord2VecMap, read_dataset, iterate_minibatches, read_dataset_E
+from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset
 
 def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
  
