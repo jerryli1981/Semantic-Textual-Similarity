@@ -11,8 +11,8 @@ from scipy.stats import pearsonr
 sys.path.insert(0, os.path.abspath('../Lasagne'))
 
 from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer, FlattenLayer, EmbeddingLayer,\
-    ElemwiseMergeLayer, AbsLayer,ReshapeLayer, get_output, get_all_params, get_output_shape, DropoutLayer,\
-    DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer, \
+    ElemwiseMergeLayer, ReshapeLayer, get_output, get_all_params, get_output_shape, DropoutLayer,\
+    DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer, AbsSubLayer,\
     ConcatLayer, Pool1DLayer, FeaturePoolLayer,count_params
 
 from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params,\
@@ -43,22 +43,21 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
         nonlinearity=tanh)
 
 
-    """
+
     l_forward_1_b = LSTMLayer(
         l1_emb, num_units=args.lstmDim, mask_input=l1_mask_in, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh, backwards=True)
-    """
+    
 
     l_forward_1 = SliceLayer(l_forward_1_lstm, indices=-1, axis=1) # out_shape (None, args.lstmDim)
     
-    """
     l_forward_1_b = SliceLayer(l_forward_1_b, indices=0, axis=1) # out_shape (None, args.lstmDim)
     l_forward_1 = ConcatLayer([l_forward_1, l_forward_1_b])
     #########################
-    l_forward_1 = SliceLayer(l_forward_1, indices=slice(-maxlen, None), axis=1)
-    l_forward_1 = FeaturePoolLayer(l_forward_1, pool_size=maxlen, axis=1, pool_function=T.mean)
-    l_forward_1 = ReshapeLayer(l_forward_1, ((batchsize, args.lstmDim)))
-    """
+
+    #l_forward_1 = SliceLayer(l_forward_1, indices=slice(-maxlen, None), axis=1)
+    #l_forward_1 = FeaturePoolLayer(l_forward_1, pool_size=maxlen, axis=1, pool_function=T.mean)
+    #l_forward_1 = ReshapeLayer(l_forward_1, ((batchsize, args.lstmDim)))
 
     l2_in = InputLayer((None, maxlen),input_var=input2_var)
     l2_mask_in = InputLayer((None, maxlen),input_var=input2_mask_var)
@@ -69,25 +68,24 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
         l2_emb, num_units=args.lstmDim, mask_input=l2_mask_in, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh)
 
-    """
+    
     l_forward_2_b = LSTMLayer(
         l2_emb, num_units=args.lstmDim, mask_input=l2_mask_in, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh, backwards=True)
-    """
+    
 
     l_forward_2 = SliceLayer(l_forward_2_lstm, indices=-1, axis=1)
 
-    """"
     l_forward_2_b = SliceLayer(l_forward_2_b, indices=0, axis=1)
     l_forward_2 = ConcatLayer([l_forward_2, l_forward_2_b])
     #######################
-    l_forward_2 = SliceLayer(l_forward_2, indices=slice(-maxlen, None), axis=1)
-    l_forward_2 = FeaturePoolLayer(l_forward_2, pool_size=maxlen, axis=1, pool_function=T.mean)
-    l_forward_2 = ReshapeLayer(l_forward_2, ((batchsize, args.lstmDim)))
-    """
+    #l_forward_2 = SliceLayer(l_forward_2, indices=slice(-maxlen, None), axis=1)
+    #l_forward_2 = FeaturePoolLayer(l_forward_2, pool_size=maxlen, axis=1, pool_function=T.mean)
+    #l_forward_2 = ReshapeLayer(l_forward_2, ((batchsize, args.lstmDim)))
+    
 
     l12_mul = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
-    l12_sub = AbsLayer(ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub))
+    l12_sub = AbsSubLayer([l_forward_1, l_forward_2], merge_function=T.sub)
     l12_concat = ConcatLayer([l12_mul, l12_sub])
 
     #l12_concat = DropoutLayer(l12_concat, p=0.2)
@@ -104,8 +102,8 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
                 l_hid, num_units=3,nonlinearity=softmax)
 
     prediction = get_output(network)
-    loss = T.mean(target_var * ( T.log(target_var+ 1e-16) - T.log(prediction) ))
-    #loss = T.mean(categorical_crossentropy(prediction, target_var))
+    #loss = T.mean(target_var * ( T.log(target_var + 1e-30) - T.log(prediction) ))
+    loss = T.mean(categorical_crossentropy(prediction,target_var))
     #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
     #penalty = sum ( T.sum(lstm_param**2) for lstm_param in lstm_params )
     #penalty = regularize_layer_params(l_forward_1_lstm, l2)
@@ -137,7 +135,8 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
     test_prediction = get_output(network, deterministic=True)
     #test_loss = T.mean(categorical_crossentropy(test_prediction, target_var))
     #test_loss = 0.2 * T.sum( target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction)))/ batchsize
-    test_loss = T.mean(target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction) ))
+    #test_loss = T.mean(target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction) ))
+    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
 
     train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
         loss, updates=updates, allow_input_downcast=True)
