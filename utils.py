@@ -84,7 +84,8 @@ def pearson(x, y):
     y = y- np.mean(y)
     return np.dot(x, y) / (np.linalg.norm(x) * np.linalg.norm(y))
 
-def iterate_minibatches(inputs1, inputs1_mask, inputs2, inputs2_mask, targets, scores, scores_pred, batchsize, shuffle=False):
+def iterate_minibatches(inputs1, inputs1_mask, inputs2, inputs2_mask, 
+    targets, scores, scores_pred, batchsize, shuffle=False):
     assert len(inputs1) == len(targets)
     if shuffle:
         indices = np.arange(len(inputs1))
@@ -95,6 +96,18 @@ def iterate_minibatches(inputs1, inputs1_mask, inputs2, inputs2_mask, targets, s
         else:
             excerpt = slice(start_idx, start_idx + batchsize)
         yield inputs1[excerpt], inputs1_mask[excerpt], inputs2[excerpt], inputs2_mask[excerpt], targets[excerpt], scores[excerpt], scores_pred[excerpt]
+
+def iterate_minibatches_(inputs, batchsize, shuffle=False):
+
+    if shuffle:
+        indices = np.arange(len(inputs[0]))
+        np.random.shuffle(indices)
+    for start_idx in range(0, len(inputs[0]) - batchsize + 1, batchsize):
+        if shuffle:
+            excerpt = indices[start_idx:start_idx + batchsize]
+        else:
+            excerpt = slice(start_idx, start_idx + batchsize)
+        yield ( input[excerpt] for input in inputs )
 
 def iterate_minibatches_tree(dataset, batchsize, shuffle=False):
 
@@ -184,7 +197,7 @@ def read_sequence_dataset(dataset_dir, dataset_name, maxlen=36):
             if ceil == floor:
                 Y_scores_pred[i, floor] = 1
             else:
-                Y_scores_pred[i, floor] = ceil-sim 
+                Y_scores_pred[i, floor] = ceil-sim
                 Y_scores_pred[i, ceil] = sim-floor
 
             label = labelIdx_m[ent]
