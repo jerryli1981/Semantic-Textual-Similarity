@@ -672,19 +672,26 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
 
     num_filters = 200
     stride = 1 
-    filter_size=(3, 2*args.lstmDim)
-    pool_size=(maxlen-3+1,1)
+    filter_size=(10, 10)
+    pool_size=(4,4)
 
     reshape = ReshapeLayer(concat, (batchsize, 1, maxlen, 2*args.lstmDim))
-    conv2d = Conv2DLayer(reshape, num_filters=num_filters, filter_size=filter_size, stride=stride,
-        nonlinearity=rectify,W=GlorotUniform())
-    maxpool = MaxPool2DLayer(conv2d, pool_size=pool_size)#(None, 100, 1, 1)
 
-    forward = FlattenLayer(maxpool) #(None, 72)
-    #print "XXX" , get_output_shape(forward) 
+    conv2d = Conv2DLayer(reshape, num_filters=32, filter_size=(5, 5),
+            nonlinearity=rectify,W=GlorotUniform())
+    
+    maxpool = MaxPool2DLayer(conv2d, pool_size=(2, 2))
 
-    hid = DenseLayer(forward, num_units=args.hiddenDim, nonlinearity=sigmoid)
+    # Another convolution with 32 5x5 kernels, and another 2x2 pooling:
+    conv2d = Conv2DLayer(maxpool, num_filters=32, filter_size=(5, 5),
+            nonlinearity=rectify)
+    maxpool = MaxPool2DLayer(conv2d, pool_size=(2, 2))
 
+    # A fully-connected layer of 256 units with 50% dropout on its inputs:
+    hid = DenseLayer(DropoutLayer(maxpool, p=.5),num_units=256,
+            nonlinearity=rectify)
+
+    # And, finally, the 10-unit output layer with 50% dropout on its inputs:
     if args.task == "sts":
         network = DenseLayer(
                 hid, num_units=5,
