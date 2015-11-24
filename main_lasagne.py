@@ -556,16 +556,11 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
 
  
     # elementwisemerge need fix the sequence length
-    #mul = ElemwiseMergeLayer([forward_1, forward_2], merge_function=T.mul)
-    #sub = AbsSubLayer([forward_1, forward_2], merge_function=T.sub)
-    #concat = ConcatLayer([mul, sub])
+    mul = ElemwiseMergeLayer([forward_1, forward_2], merge_function=T.mul)
+    sub = AbsSubLayer([forward_1, forward_2], merge_function=T.sub)
+    concat = ConcatLayer([mul, sub])
 
-    concat = ConcatLayer([forward_1, forward_2], axis=1)
-    reshape = ReshapeLayer(concat, (batchsize, 1, 2, num_filters))
-    conv2d = Conv2DLayer(reshape, num_filters=num_filters, filter_size=(1, num_filters), stride=stride, #(None, 3, 1, 48)
-        nonlinearity=rectify,W=GlorotUniform())
-    maxpool = MaxPool2DLayer(conv2d, pool_size=(2,1)) 
-    concat = FlattenLayer(maxpool) #(None, 100)
+    concat = ConcatLayer([forward_1,forward_2])
 
     hid = DenseLayer(concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
 
@@ -676,7 +671,7 @@ if __name__ == '__main__':
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
-    train_fn, val_fn = build_network_2dconv(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
+    train_fn, val_fn = build_network_single_lstm(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
         target_var, wordEmbeddings)
 
     print("Starting training...")
@@ -692,11 +687,11 @@ if __name__ == '__main__':
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
-                #train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
-                train_err += train_fn(inputs1, inputs2, scores_pred)
+                train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                #train_err += train_fn(inputs1, inputs2, scores_pred)
             elif args.task == "ent":
-                #train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
-                train_err += train_fn(inputs1, inputs2, labels)
+                train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
+                #train_err += train_fn(inputs1, inputs2, labels)
             else:
                 raise "task need to be set"
 
@@ -714,8 +709,8 @@ if __name__ == '__main__':
 
             if args.task == "sts":
 
-                #err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
-                err, preds = val_fn(inputs1, inputs2, scores_pred)
+                err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                #err, preds = val_fn(inputs1, inputs2, scores_pred)
                 predictScores = preds.dot(np.array([1,2,3,4,5]))
                 guesses = predictScores.tolist()
                 scores = scores.tolist()
@@ -723,8 +718,8 @@ if __name__ == '__main__':
                 val_pearson += pearson_score 
 
             elif args.task == "ent":
-                #err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
-                err, acc = val_fn(inputs1, inputs2, labels)
+                err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
+                #err, acc = val_fn(inputs1, inputs2, labels)
                 val_acc += acc
 
             val_err += err
@@ -763,8 +758,8 @@ if __name__ == '__main__':
 
         if args.task == "sts":
 
-            #err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
-            err, preds = val_fn(inputs1, inputs2, scores_pred)
+            err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+            #err, preds = val_fn(inputs1, inputs2, scores_pred)
             predictScores = preds.dot(np.array([1,2,3,4,5]))
             guesses = predictScores.tolist()
             scores = scores.tolist()
@@ -772,8 +767,8 @@ if __name__ == '__main__':
             test_pearson += pearson_score 
 
         elif args.task == "ent":
-            #err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
-            err, acc = val_fn(inputs1, inputs2, labels)
+            err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
+            #err, acc = val_fn(inputs1, inputs2, labels)
             test_acc += acc
 
 
