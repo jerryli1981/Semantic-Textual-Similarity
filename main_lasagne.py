@@ -506,12 +506,12 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
     stride = 1 
 
     #CNN_sentence config
-    #filter_size=(3, wordDim)
-    #pool_size=(maxlen-3+1,1)
+    filter_size=(3, wordDim)
+    pool_size=(maxlen-3+1,1)
 
     #two conv pool layer
-    filter_size=(10, 100)
-    pool_size=(4,4)
+    #filter_size=(10, 100)
+    #pool_size=(4,4)
 
     input_1 = InputLayer((None, maxlen),input_var=input1_var)
     batchsize, seqlen = input_1.input_var.shape
@@ -525,11 +525,13 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
         nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
     maxpool_1 = MaxPool2DLayer(conv2d_1, pool_size=pool_size) #(None, 100, 1, 1) 
   
+    """
     filter_size_2=(4, 10)
     pool_size_2=(2,2)
     conv2d_1 = Conv2DLayer(maxpool_1, num_filters=num_filters, filter_size=filter_size_2, stride=stride, 
         nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
     maxpool_1 = MaxPool2DLayer(conv2d_1, pool_size=pool_size_2) #(None, 100, 1, 1) (None, 100, 1, 20)
+    """
 
     forward_1 = FlattenLayer(maxpool_1) #(None, 100) #(None, 50400)
  
@@ -544,19 +546,27 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
         nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
     maxpool_2 = MaxPool2DLayer(conv2d_2, pool_size=pool_size) #(None, 100, 1, 1)
 
+    """
     conv2d_2 = Conv2DLayer(maxpool_2, num_filters=num_filters, filter_size=filter_size_2, stride=stride, 
         nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
     maxpool_2 = MaxPool2DLayer(conv2d_2, pool_size=pool_size_2) #(None, 100, 1, 1)
+    """
 
     forward_2 = FlattenLayer(maxpool_2) #(None, 100)
 
  
     # elementwisemerge need fix the sequence length
-    mul = ElemwiseMergeLayer([forward_1, forward_2], merge_function=T.mul)
-    sub = AbsSubLayer([forward_1, forward_2], merge_function=T.sub)
+    #mul = ElemwiseMergeLayer([forward_1, forward_2], merge_function=T.mul)
+    #sub = AbsSubLayer([forward_1, forward_2], merge_function=T.sub)
+    #concat = ConcatLayer([mul, sub])
 
-    
-    concat = ConcatLayer([mul, sub])
+    concat = ConcatLayer([forward_1, forward_2], axis=1)
+    reshape = ReshapeLayer(concat, (batchsize, 1, 2, num_filters))
+    conv2d = Conv2DLayer(reshape, num_filters=num_filters, filter_size=(1, num_filters), stride=stride, #(None, 3, 1, 48)
+        nonlinearity=rectify,W=GlorotUniform())
+    maxpool = MaxPool2DLayer(conv2d, pool_size=(2,1)) 
+    concat = FlattenLayer(maxpool) #(None, 100)
+
     hid = DenseLayer(concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
 
     if args.task == "sts":
