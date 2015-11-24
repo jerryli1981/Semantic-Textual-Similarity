@@ -502,10 +502,16 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
     wordDim = wordEmbeddings.shape[0]
 
     num_filters = 100
-    filter_size=(3, wordDim)
+    
     stride = 1 
 
-    pool_size=(maxlen-3+1,1)
+    #CNN_sentence config
+    #filter_size=(3, wordDim)
+    #pool_size=(maxlen-3+1,1)
+
+    #two conv pool layer
+    filter_size=(3, 5)
+    pool_size=(2,2)
 
     input_1 = InputLayer((None, maxlen),input_var=input1_var)
     batchsize, seqlen = input_1.input_var.shape
@@ -514,12 +520,19 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
     emb_1.params[emb_1.W].remove('trainable') #(batchsize, maxlen, wordDim)
 
     reshape_1 = ReshapeLayer(emb_1, (batchsize, 1, maxlen, wordDim))
-    conv2d_1 = Conv2DLayer(reshape_1, num_filters=num_filters, filter_size=filter_size, stride=stride, 
+
+    conv2d_1 = Conv2DLayer(reshape_1, num_filters=num_filters, filter_size=(filter_size), stride=stride, 
+        nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
+
+    maxpool_1 = MaxPool2DLayer(conv2d_1, pool_size=pool_size) #(None, 100, 1, 1)
+
+    conv2d_1 = Conv2DLayer(maxpool_1, num_filters=num_filters, filter_size=filter_size, stride=stride, 
         nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
     maxpool_1 = MaxPool2DLayer(conv2d_1, pool_size=pool_size) #(None, 100, 1, 1)
 
-    forward_1 = FlattenLayer(maxpool_1) #(None, 100)
 
+    forward_1 = FlattenLayer(maxpool_1) #(None, 100) #(None, 50400)
+ 
 
     input_2 = InputLayer((None, maxlen),input_var=input2_var)
     #input_2_mask = InputLayer((None, maxlen),input_var=input2_mask_var)
@@ -528,6 +541,10 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
 
     reshape_2 = ReshapeLayer(emb_2, (batchsize, 1, maxlen, wordDim))
     conv2d_2 = Conv2DLayer(reshape_2, num_filters=num_filters, filter_size=filter_size, stride=stride, 
+        nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
+    maxpool_2 = MaxPool2DLayer(conv2d_2, pool_size=pool_size) #(None, 100, 1, 1)
+
+    conv2d_2 = Conv2DLayer(maxpool_2, num_filters=num_filters, filter_size=filter_size, stride=stride, 
         nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
     maxpool_2 = MaxPool2DLayer(conv2d_2, pool_size=pool_size) #(None, 100, 1, 1)
 
