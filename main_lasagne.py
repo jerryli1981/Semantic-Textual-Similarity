@@ -12,94 +12,63 @@ sys.path.insert(0, os.path.abspath('../Lasagne'))
 
 from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer, FlattenLayer, EmbeddingLayer,\
     ElemwiseMergeLayer, ReshapeLayer, get_output, get_all_params, get_output_shape, DropoutLayer,\
-    DenseLayer,ElemwiseSumLayer,Conv2DLayer, CustomRecurrentLayer, AbsSubLayer,\
-    ConcatLayer, Pool1DLayer, FeaturePoolLayer,count_params
+    DenseLayer,ElemwiseSumLayer,Conv2DLayer, Conv1DLayer, CustomRecurrentLayer, AbsSubLayer,\
+    ConcatLayer, Pool1DLayer, FeaturePoolLayer,count_params,MaxPool2DLayer,MaxPool1DLayer
 
 from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params,\
                                     regularize_network_params
 from lasagne.nonlinearities import tanh, sigmoid, softmax, rectify
 from lasagne.objectives import categorical_crossentropy, squared_error, categorical_accuracy
 from lasagne.updates import sgd, adagrad, adadelta, nesterov_momentum, rmsprop, adam
+from lasagne.init import GlorotUniform
 
 from utils import read_sequence_dataset, iterate_minibatches,loadWord2VecMap
 
-
-def build_network_ACL15(args, input1_var, input1_mask_var, 
+def build_network_single_lstm(args, input1_var, input1_mask_var, 
         input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
 
-    print("Building model ...")
+    print("Building model with single lstm")
 
     vocab_size = wordEmbeddings.shape[1]
     wordDim = wordEmbeddings.shape[0]
     GRAD_CLIP = wordDim
-    l1_in = InputLayer((None, maxlen),input_var=input1_var)
-    batchsize, seqlen = l1_in.input_var.shape
-    l1_mask_in = InputLayer((None, maxlen),input_var=input1_mask_var)
-    l1_emb = EmbeddingLayer(l1_in, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
-    l1_emb.params[l1_emb.W].remove('trainable')
+    input_1 = InputLayer((None, maxlen),input_var=input1_var)
+    batchsize, seqlen = input_1.input_var.shape
+    input_1_mask = InputLayer((None, maxlen),input_var=input1_mask_var)
+    emb_1 = EmbeddingLayer(input_1, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_1.params[emb_1.W].remove('trainable')
 
-    l_forward_1_lstm = LSTMLayer(
-        l1_emb, num_units=args.lstmDim, mask_input=l1_mask_in, grad_clipping=GRAD_CLIP,
-        nonlinearity=tanh)
-
-
-
-    l_forward_1_b = LSTMLayer(
-        l1_emb, num_units=args.lstmDim, mask_input=l1_mask_in, grad_clipping=GRAD_CLIP,
-        nonlinearity=tanh, backwards=True)
-    
-
-    l_forward_1 = SliceLayer(l_forward_1_lstm, indices=-1, axis=1) # out_shape (None, args.lstmDim)
-    
-    l_forward_1_b = SliceLayer(l_forward_1_b, indices=0, axis=1) # out_shape (None, args.lstmDim)
-    l_forward_1 = ConcatLayer([l_forward_1, l_forward_1_b])
-    #########################
-
-    #l_forward_1 = SliceLayer(l_forward_1, indices=slice(-maxlen, None), axis=1)
-    #l_forward_1 = FeaturePoolLayer(l_forward_1, pool_size=maxlen, axis=1, pool_function=T.mean)
-    #l_forward_1 = ReshapeLayer(l_forward_1, ((batchsize, args.lstmDim)))
-
-    l2_in = InputLayer((None, maxlen),input_var=input2_var)
-    l2_mask_in = InputLayer((None, maxlen),input_var=input2_mask_var)
-    l2_emb = EmbeddingLayer(l2_in, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
-    l2_emb.params[l2_emb.W].remove('trainable')
-
-    l_forward_2_lstm = LSTMLayer(
-        l2_emb, num_units=args.lstmDim, mask_input=l2_mask_in, grad_clipping=GRAD_CLIP,
+    lstm_1 = LSTMLayer(
+        emb_1, num_units=args.lstmDim, mask_input=input_1_mask, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh)
 
     
-    l_forward_2_b = LSTMLayer(
-        l2_emb, num_units=args.lstmDim, mask_input=l2_mask_in, grad_clipping=GRAD_CLIP,
-        nonlinearity=tanh, backwards=True)
-    
+    slice_1 = SliceLayer(lstm_1, indices=-1, axis=1) # out_shape (None, args.lstmDim)
 
-    l_forward_2 = SliceLayer(l_forward_2_lstm, indices=-1, axis=1)
 
-    l_forward_2_b = SliceLayer(l_forward_2_b, indices=0, axis=1)
-    l_forward_2 = ConcatLayer([l_forward_2, l_forward_2_b])
-    #######################
-    #l_forward_2 = SliceLayer(l_forward_2, indices=slice(-maxlen, None), axis=1)
-    #l_forward_2 = FeaturePoolLayer(l_forward_2, pool_size=maxlen, axis=1, pool_function=T.mean)
-    #l_forward_2 = ReshapeLayer(l_forward_2, ((batchsize, args.lstmDim)))
-    
+    input_2 = InputLayer((None, maxlen),input_var=input2_var)
+    input_2_mask = InputLayer((None, maxlen),input_var=input2_mask_var)
+    emb_2 = EmbeddingLayer(input_2, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_2.params[emb_2.W].remove('trainable')
 
-    l12_mul = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
-    l12_sub = AbsSubLayer([l_forward_1, l_forward_2], merge_function=T.sub)
-    l12_concat = ConcatLayer([l12_mul, l12_sub])
+    lstm_2 = LSTMLayer(
+        emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
+ 
+    slice_2 = SliceLayer(lstm_2, indices=-1, axis=1)
 
-    #l12_concat = DropoutLayer(l12_concat, p=0.2)
+    mul = ElemwiseMergeLayer([slice_1, slice_2], merge_function=T.mul)
+    sub = AbsSubLayer([slice_1, slice_2], merge_function=T.sub)
+    concat = ConcatLayer([mul, sub])
 
-    l_hid = DenseLayer(l12_concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
+    hid = DenseLayer(concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
 
 
     if args.task == "sts":
-        network = DenseLayer(
-                l_hid, num_units=5,nonlinearity=softmax)
+        network = DenseLayer(hid, num_units=5,nonlinearity=softmax)
 
     elif args.task == "ent":
-        network = DenseLayer(
-                l_hid, num_units=3,nonlinearity=softmax)
+        network = DenseLayer(hid, num_units=3,nonlinearity=softmax)
 
     prediction = get_output(network)
     #loss = T.mean(target_var * ( T.log(target_var + 1e-30) - T.log(prediction) ))
@@ -111,7 +80,7 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
     #penalty = 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(l_forward_1) )
     lambda_val = 0.5 * 1e-4
 
-    layers = {l_forward_1_lstm:lambda_val, l_hid:lambda_val, network:lambda_val} 
+    layers = {lstm_1:lambda_val, hid:lambda_val, network:lambda_val} 
     penalty = regularize_layer_params_weighted(layers, l2)
     loss = loss + penalty
 
@@ -155,160 +124,488 @@ def build_network_ACL15(args, input1_var, input1_mask_var,
     return train_fn, val_fn
 
 
-def build_network(args, input1_var=None, input2_var=None, target_var=None, maxlen=36):
+def build_network_double_lstm(args, input1_var, input1_mask_var, 
+        input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
 
-    print("Building model ...")
+    print("Building model with double lstm")
 
-    l1_in = InputLayer((None, maxlen, args.wvecDim),input_var=input1_var)
+    vocab_size = wordEmbeddings.shape[1]
+    wordDim = wordEmbeddings.shape[0]
+    GRAD_CLIP = wordDim
+    input_1 = InputLayer((None, maxlen),input_var=input1_var)
+    batchsize, seqlen = input_1.input_var.shape
+    input_1_mask = InputLayer((None, maxlen),input_var=input1_mask_var)
+    emb_1 = EmbeddingLayer(input_1, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_1.params[emb_1.W].remove('trainable')
 
-    l2_in = InputLayer((None, maxlen, args.wvecDim),input_var=input2_var)
+    lstm_1 = LSTMLayer(
+        emb_1, num_units=args.lstmDim, mask_input=input_1_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
 
-    batchsize, seqlen, _ = l1_in.input_var.shape
-
-    GRAD_CLIP = args.wvecDim
-
-    #l1_in = ReshapeLayer(l1_in,(-1, maxlen, args.wvecDim))
-    l_forward_1 = LSTMLayer(
-        l1_in, num_units=args.wvecDim, grad_clipping=GRAD_CLIP,
-        nonlinearity=lasagne.nonlinearities.tanh)
-
-    l_forward_1 = lasagne.layers.SliceLayer(l_forward_1, indices=slice(-3, None), axis=1)
-
-    l_forward_1 = ReshapeLayer(l_forward_1,(batchsize, 1, 3, args.wvecDim))
-
-    #l2_in = ReshapeLayer(l2_in,(-1, maxlen, args.wvecDim))
-    l_forward_2 = LSTMLayer(
-        l2_in, args.wvecDim, grad_clipping=GRAD_CLIP,
-        nonlinearity=lasagne.nonlinearities.tanh)
-
-    l_forward_2 = lasagne.layers.SliceLayer(l_forward_2, indices=slice(-3, None), axis=1)
-
-    l_forward_2 = ReshapeLayer(l_forward_2,(batchsize, 1, 3, args.wvecDim))
-
-
-    l_forward_1 = Conv2DLayer(
-            l_forward_1, num_filters=32, filter_size=(2, 2),
-            nonlinearity=lasagne.nonlinearities.rectify,
-            W=lasagne.init.GlorotUniform())
- 
-    # Max-pooling layer of factor 2 in both dimensions:
-    l_forward_1 = lasagne.layers.MaxPool2DLayer(l_forward_1, pool_size=(2, 2))
-
-    """"
-    #another con2d
-    l_forward_1 = lasagne.layers.Conv2DLayer(
-            l_forward_1, num_filters=32, filter_size=(2, 2),
-            nonlinearity=lasagne.nonlinearities.rectify)
-
-    l_forward_1 = lasagne.layers.MaxPool2DLayer(l_forward_1, pool_size=(2, 2))
-    """
-
-    # A fully-connected layer of 256 units with 50% dropout on its inputs:
-    l_forward_1 = DenseLayer(
-            lasagne.layers.dropout(l_forward_1, p=.5),
-            num_units=128,
-            nonlinearity=lasagne.nonlinearities.rectify)
-
-    l_forward_2 = Conv2DLayer(
-            l_forward_2, num_filters=32, filter_size=(2, 2),
-            nonlinearity=lasagne.nonlinearities.rectify,
-            W=lasagne.init.GlorotUniform())
- 
-    # Max-pooling layer of factor 2 in both dimensions:
-    l_forward_2 = lasagne.layers.MaxPool2DLayer(l_forward_2, pool_size=(2, 2))
-
-    """"
-    #another con2d
-    l_forward_2 = lasagne.layers.Conv2DLayer(
-            l_forward_2, num_filters=32, filter_size=(2, 2),
-            nonlinearity=lasagne.nonlinearities.rectify)
-    l_forward_2 = lasagne.layers.MaxPool2DLayer(l_forward_2, pool_size=(2, 2))
-    """
-
-    # A fully-connected layer of 256 units with 50% dropout on its inputs:
-    l_forward_2 = DenseLayer(
-            lasagne.layers.dropout(l_forward_2, p=.5),
-            num_units=128,
-            nonlinearity=lasagne.nonlinearities.rectify)
-
-
-    #l_forward_1 = FlattenLayer(l_forward_1)
-
-    #l_forward_2 = FlattenLayer(l_forward_2)
-
-    #l_forward_1 = lasagne.layers.SliceLayer(l_forward_1, indices=-1, axis=1)
-
-    #l_forward_2 = lasagne.layers.SliceLayer(l_forward_2, indices=-1, axis=1)
-
-    # elementwisemerge need fix the sequence length
-    l12_mul = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.mul)
-    l12_sub = ElemwiseMergeLayer([l_forward_1, l_forward_2], merge_function=T.sub)
-    l12_sub = AbsLayer(l12_sub)
-
-    #l12_mul  = ReshapeLayer(l12_mul,(-1, args.wvecDim))
-    #l12_sub = ReshapeLayer(l12_sub,(-1, args.wvecDim))
-
-    l12_mul_Dense = DenseLayer(l12_mul, num_units=args.hiddenDim, nonlinearity=None, b=None)
-    l12_sub_Dense = DenseLayer(l12_sub, num_units=args.hiddenDim, nonlinearity=None, b=None)
-
-
-    #l12_mul_Dense_r = ReshapeLayer(l12_mul_Dense, (batchsize, seqlen, args.hiddenDim))
-    #l12_sub_Dense_r  = ReshapeLayer(l12_sub_Dense, (batchsize, seqlen, args.hiddenDim))
+    lstm_1_back = LSTMLayer(
+        emb_1, num_units=args.lstmDim, mask_input=input_1_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh, backwards=True)
     
-    joined = ElemwiseSumLayer([l12_mul_Dense, l12_sub_Dense])
+    slice_1 = SliceLayer(lstm_1, indices=-1, axis=1) # out_shape (None, args.lstmDim)
+    slice_1_back = SliceLayer(lstm_1_back, indices=0, axis=1) # out_shape (None, args.lstmDim)
+    concat_1 = ConcatLayer([slice_1, slice_1_back])
 
-    l_hid = NonlinearityLayer(joined, nonlinearity=lasagne.nonlinearities.sigmoid)
+    input_2 = InputLayer((None, maxlen),input_var=input2_var)
+    input_2_mask = InputLayer((None, maxlen),input_var=input2_mask_var)
+    emb_2 = EmbeddingLayer(input_2, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_2.params[emb_2.W].remove('trainable')
+
+    lstm_2 = LSTMLayer(
+        emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
+ 
+    lstm_2_back = LSTMLayer(
+        emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh, backwards=True)
+    
+
+    slice_2 = SliceLayer(lstm_2, indices=-1, axis=1)
+    slice_2_b = SliceLayer(lstm_2_back, indices=0, axis=1)
+    concat_2 = ConcatLayer([slice_2, slice_2_b])
+    
+
+    mul = ElemwiseMergeLayer([concat_1, concat_2], merge_function=T.mul)
+    sub = AbsSubLayer([concat_1, concat_2], merge_function=T.sub)
+    concat = ConcatLayer([mul, sub])
+
+    hid = DenseLayer(concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
+
 
     if args.task == "sts":
-        network = lasagne.layers.DenseLayer(
-                l_hid, num_units=args.rangeScores,
-                nonlinearity=lasagne.nonlinearities.softmax)
+        network = DenseLayer(hid, num_units=5,nonlinearity=softmax)
+
+    elif args.task == "ent":
+        network = DenseLayer(hid, num_units=3,nonlinearity=softmax)
+
+    prediction = get_output(network)
+    #loss = T.mean(target_var * ( T.log(target_var + 1e-30) - T.log(prediction) ))
+    loss = T.mean(categorical_crossentropy(prediction,target_var))
+    #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
+    #penalty = sum ( T.sum(lstm_param**2) for lstm_param in lstm_params )
+    #penalty = regularize_layer_params(l_forward_1_lstm, l2)
+    #penalty = T.sum(lstm_param**2 for lstm_param in lstm_params)
+    #penalty = 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(l_forward_1) )
+    lambda_val = 0.5 * 1e-4
+
+    layers = {lstm_1:lambda_val, hid:lambda_val, network:lambda_val} 
+    penalty = regularize_layer_params_weighted(layers, l2)
+    loss = loss + penalty
+
+    params = get_all_params(network, trainable=True)
+
+    if args.optimizer == "sgd":
+        updates = sgd(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adagrad":
+        updates = adagrad(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adadelta":
+        updates = adadelta(loss, params, learning_rate=args.step)
+    elif args.optimizer == "nesterov":
+        updates = nesterov_momentum(loss, params, learning_rate=args.step)
+    elif args.optimizer == "rms":
+        updates = rmsprop(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adam":
+        updates = adam(loss, params, learning_rate=args.step)
+    else:
+        raise "Need set optimizer correctly"
+ 
+    test_prediction = get_output(network, deterministic=True)
+    #test_loss = T.mean(categorical_crossentropy(test_prediction, target_var))
+    #test_loss = 0.2 * T.sum( target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction)))/ batchsize
+    #test_loss = T.mean(target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction) ))
+    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
+
+    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+        loss, updates=updates, allow_input_downcast=True)
+
+    if args.task == "sts":
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_prediction], allow_input_downcast=True)
+
+    elif args.task == "ent":
+        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
+
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_acc], allow_input_downcast=True)
+
+    return train_fn, val_fn
+
+
+def build_network_lstm1dconv(args, input1_var, input1_mask_var, 
+        input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
+
+    
+    print("Building model lstm + 1D Convolution")
+
+    vocab_size = wordEmbeddings.shape[1]
+    wordDim = wordEmbeddings.shape[0]
+    GRAD_CLIP = wordDim
+
+    num_filters = 8
+    filter_size = 9
+    stride = 3 
+    pool_size=2
+
+
+    input_1 = InputLayer((None, maxlen),input_var=input1_var)
+    batchsize, seqlen = input_1.input_var.shape
+
+    input_1_mask = InputLayer((None, maxlen),input_var=input1_mask_var)
+    emb_1 = EmbeddingLayer(input_1, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_1.params[emb_1.W].remove('trainable')
+
+    lstm_1 = LSTMLayer(emb_1, num_units=args.lstmDim, mask_input=input_1_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
+
+    slice_1 = SliceLayer(lstm_1, indices=-1, axis=1) #(None, 150)
+
+    reshape_1 = ReshapeLayer(slice_1, (batchsize, 1, args.lstmDim)) #(None, 1, 150)
+
+    conv1d_1 = Conv1DLayer(reshape_1, num_filters=num_filters, filter_size=filter_size, #(None, 3, 48)
+        stride=stride, nonlinearity=rectify,W=GlorotUniform())
+
+
+    maxpool_1 = MaxPool1DLayer(conv1d_1, pool_size=pool_size) #(None, 3, 24)
+
+    forward_1 = FlattenLayer(maxpool_1) #(None, 72)
+  
+    input_2 = InputLayer((None, maxlen),input_var=input2_var)
+    input_2_mask = InputLayer((None, maxlen),input_var=input2_mask_var)
+    emb_2 = EmbeddingLayer(input_2, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_2.params[emb_2.W].remove('trainable')
+
+    lstm_2 = LSTMLayer(emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
+
+    slice_2 = SliceLayer(lstm_2, indices=-1, axis=1)
+
+    reshape_2 = ReshapeLayer(slice_2,(batchsize, 1, args.lstmDim))
+
+    conv1d_2 = Conv1DLayer(reshape_2, num_filters=num_filters, filter_size=filter_size,
+        stride=stride, nonlinearity=rectify,W=GlorotUniform())
+
+    maxpool_2 = MaxPool1DLayer(conv1d_2, pool_size=pool_size) #(None, 3, 24)
+
+    forward_2 = FlattenLayer(maxpool_2) #(None, 72)
+ 
+
+    # elementwisemerge need fix the sequence length
+    mul = ElemwiseMergeLayer([forward_1, forward_2], merge_function=T.mul)
+    sub = AbsSubLayer([forward_1, forward_2], merge_function=T.sub)
+
+    
+    concat = ConcatLayer([mul, sub])
+    hid = DenseLayer(concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
+
+    if args.task == "sts":
+        network = DenseLayer(
+                hid, num_units=5,
+                nonlinearity=softmax)
 
     elif args.task == "ent":
         network = DenseLayer(
-                l_hid, num_units=args.numLabels,
-                nonlinearity=lasagne.nonlinearities.softmax)
+                hid, num_units=3,
+                nonlinearity=softmax)
 
-    prediction = lasagne.layers.get_output(network)
-    loss = T.mean(lasagne.objectives.categorical_crossentropy(prediction, target_var))
+    prediction = get_output(network)
+    
+    loss = T.mean(categorical_crossentropy(prediction,target_var))
+    lambda_val = 0.5 * 1e-4
 
-    #layers = {l12_mul_Dense:0.1, l12_sub_Dense:0.1, l_out_Dense:0.5}
+    layers = {lstm_1:lambda_val, conv1d_1:lambda_val, hid:lambda_val, network:lambda_val} 
+    penalty = regularize_layer_params_weighted(layers, l2)
+    loss = loss + penalty
 
-    #l2_penalty = regularize_layer_params_weighted(layers, l2)
-    #l1_penalty = regularize_layer_params(l_out_Dense, l1) * 1e-4
-    #loss = loss + l2_penalty + l1_penalty
 
-    params = lasagne.layers.get_all_params(network, trainable=True)
+    params = get_all_params(network, trainable=True)
 
     if args.optimizer == "sgd":
-        updates = lasagne.updates.sgd(loss, params, learning_rate=args.step)
+        updates = sgd(loss, params, learning_rate=args.step)
     elif args.optimizer == "adagrad":
-        updates = lasagne.updates.adagrad(loss, params, learning_rate=args.step)
+        updates = adagrad(loss, params, learning_rate=args.step)
     elif args.optimizer == "adadelta":
-        updates = lasagne.updates.adadelta(loss, params, learning_rate=args.step)
+        updates = adadelta(loss, params, learning_rate=args.step)
     elif args.optimizer == "nesterov":
-        updates = lasagne.updates.nesterov_momentum(loss, params, learning_rate=args.step)
+        updates = nesterov_momentum(loss, params, learning_rate=args.step)
     elif args.optimizer == "rms":
-        updates = lasagne.updates.rmsprop(loss, params, learning_rate=args.step)
+        updates = rmsprop(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adam":
+        updates = adam(loss, params, learning_rate=args.step)
     else:
         raise "Need set optimizer correctly"
  
 
-    test_prediction = lasagne.layers.get_output(network, deterministic=True)
-    test_loss = lasagne.objectives.categorical_crossentropy(test_prediction,
-                                                            target_var)
-    test_loss = test_loss.mean()
+    test_prediction = get_output(network, deterministic=True)
+    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
 
-    train_fn = theano.function([input1_var, input2_var, target_var], loss, 
-        updates=updates, allow_input_downcast=True)
+    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+        loss, updates=updates, allow_input_downcast=True)
 
     if args.task == "sts":
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_prediction], allow_input_downcast=True)
+
+    elif args.task == "ent":
+        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
+
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_acc], allow_input_downcast=True)
+
+    return train_fn, val_fn
+
+def build_network_lstm2dconv(args, input1_var, input1_mask_var, 
+        input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
+
+    
+    print("Building model lstm + 2D Convolution")
+
+    vocab_size = wordEmbeddings.shape[1]
+    wordDim = wordEmbeddings.shape[0]
+    GRAD_CLIP = wordDim
+
+
+    num_filters = 8
+    filter_size=(2,9)
+    stride = 1 
+    pool_size=(1,2)
+
+    input_1 = InputLayer((None, maxlen),input_var=input1_var)
+    batchsize, seqlen = input_1.input_var.shape
+    input_1_mask = InputLayer((None, maxlen),input_var=input1_mask_var)
+    emb_1 = EmbeddingLayer(input_1, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_1.params[emb_1.W].remove('trainable')
+
+    lstm_1 = LSTMLayer(
+        emb_1, num_units=args.lstmDim, mask_input=input_1_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
+
+    lstm_1_back = LSTMLayer(
+        emb_1, num_units=args.lstmDim, mask_input=input_1_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh, backwards=True)
+    
+    slice_1 = SliceLayer(lstm_1, indices=-1, axis=1) # out_shape (None, args.lstmDim)
+    slice_1_back = SliceLayer(lstm_1_back, indices=0, axis=1) # out_shape (None, args.lstmDim)
+
+    concat_1 = ConcatLayer([slice_1, slice_1_back], axis=1)
+
+
+    reshape_1 = ReshapeLayer(concat_1, (batchsize, 1, 2, args.lstmDim))
+    conv2d_1 = Conv2DLayer(reshape_1, num_filters=num_filters, filter_size=filter_size, stride=stride, #(None, 3, 1, 48)
+        nonlinearity=rectify,W=GlorotUniform())
+    maxpool_1 = MaxPool2DLayer(conv2d_1, pool_size=pool_size) #(None, 3, 1, 24)
+    forward_1 = FlattenLayer(maxpool_1) #(None, 72)
+
+
+    input_2 = InputLayer((None, maxlen),input_var=input2_var)
+    input_2_mask = InputLayer((None, maxlen),input_var=input2_mask_var)
+    emb_2 = EmbeddingLayer(input_2, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_2.params[emb_2.W].remove('trainable')
+
+    lstm_2 = LSTMLayer(
+        emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
+ 
+    lstm_2_back = LSTMLayer(
+        emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh, backwards=True)
+    
+
+    slice_2 = SliceLayer(lstm_2, indices=-1, axis=1)
+    slice_2_b = SliceLayer(lstm_2_back, indices=0, axis=1)
+    concat_2 = ConcatLayer([slice_2, slice_2_b])
+
+    reshape_2 = ReshapeLayer(concat_2, (batchsize, 1, 2, args.lstmDim))
+    conv2d_2 = Conv2DLayer(reshape_2, num_filters=num_filters, filter_size=filter_size, stride=stride,
+        nonlinearity=rectify,W=GlorotUniform())
+    maxpool_2 = MaxPool2DLayer(conv2d_2, pool_size=pool_size)
+    forward_2 = FlattenLayer(maxpool_2) #(None, 72)
+
+ 
+    # elementwisemerge need fix the sequence length
+    mul = ElemwiseMergeLayer([forward_1, forward_2], merge_function=T.mul)
+    sub = AbsSubLayer([forward_1, forward_2], merge_function=T.sub)
+
+    
+    concat = ConcatLayer([mul, sub])
+    hid = DenseLayer(concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
+
+    if args.task == "sts":
+        network = DenseLayer(
+                hid, num_units=5,
+                nonlinearity=softmax)
+
+    elif args.task == "ent":
+        network = DenseLayer(
+                hid, num_units=3,
+                nonlinearity=softmax)
+
+    prediction = get_output(network)
+    
+    loss = T.mean(categorical_crossentropy(prediction,target_var))
+    lambda_val = 0.5 * 1e-4
+
+    layers = {lstm_1:lambda_val, conv2d_1:lambda_val, hid:lambda_val, network:lambda_val} 
+    penalty = regularize_layer_params_weighted(layers, l2)
+    loss = loss + penalty
+
+
+    params = get_all_params(network, trainable=True)
+
+    if args.optimizer == "sgd":
+        updates = sgd(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adagrad":
+        updates = adagrad(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adadelta":
+        updates = adadelta(loss, params, learning_rate=args.step)
+    elif args.optimizer == "nesterov":
+        updates = nesterov_momentum(loss, params, learning_rate=args.step)
+    elif args.optimizer == "rms":
+        updates = rmsprop(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adam":
+        updates = adam(loss, params, learning_rate=args.step)
+    else:
+        raise "Need set optimizer correctly"
+ 
+
+    test_prediction = get_output(network, deterministic=True)
+    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
+
+    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+        loss, updates=updates, allow_input_downcast=True)
+
+    if args.task == "sts":
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_prediction], allow_input_downcast=True)
+
+    elif args.task == "ent":
+        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
+
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_acc], allow_input_downcast=True)
+
+    return train_fn, val_fn
+
+def build_network_2dconv(args, input1_var, input1_mask_var, 
+        input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
+
+    
+    print("Building model with 2D Convolution")
+
+    vocab_size = wordEmbeddings.shape[1]
+    wordDim = wordEmbeddings.shape[0]
+
+    num_filters = 100
+    filter_size=(3, wordDim)
+    stride = 1 
+
+    pool_size=(maxlen-3+1,1)
+
+    input_1 = InputLayer((None, maxlen),input_var=input1_var)
+    batchsize, seqlen = input_1.input_var.shape
+    #input_1_mask = InputLayer((None, maxlen),input_var=input1_mask_var)
+    emb_1 = EmbeddingLayer(input_1, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_1.params[emb_1.W].remove('trainable') #(batchsize, maxlen, wordDim)
+
+    reshape_1 = ReshapeLayer(emb_1, (batchsize, 1, maxlen, wordDim))
+    conv2d_1 = Conv2DLayer(reshape_1, num_filters=num_filters, filter_size=filter_size, stride=stride, 
+        nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
+    maxpool_1 = MaxPool2DLayer(conv2d_1, pool_size=pool_size) #(None, 100, 1, 1)
+
+    forward_1 = FlattenLayer(maxpool_1) #(None, 100)
+
+
+    input_2 = InputLayer((None, maxlen),input_var=input2_var)
+    #input_2_mask = InputLayer((None, maxlen),input_var=input2_mask_var)
+    emb_2 = EmbeddingLayer(input_2, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_2.params[emb_2.W].remove('trainable')
+
+    reshape_2 = ReshapeLayer(emb_2, (batchsize, 1, maxlen, wordDim))
+    conv2d_2 = Conv2DLayer(reshape_2, num_filters=num_filters, filter_size=filter_size, stride=stride, 
+        nonlinearity=rectify,W=GlorotUniform()) #(None, 100, 34, 1)
+    maxpool_2 = MaxPool2DLayer(conv2d_2, pool_size=pool_size) #(None, 100, 1, 1)
+
+    forward_2 = FlattenLayer(maxpool_2) #(None, 100)
+
+ 
+    # elementwisemerge need fix the sequence length
+    mul = ElemwiseMergeLayer([forward_1, forward_2], merge_function=T.mul)
+    sub = AbsSubLayer([forward_1, forward_2], merge_function=T.sub)
+
+    
+    concat = ConcatLayer([mul, sub])
+    hid = DenseLayer(concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
+
+    if args.task == "sts":
+        network = DenseLayer(
+                hid, num_units=5,
+                nonlinearity=softmax)
+
+    elif args.task == "ent":
+        network = DenseLayer(
+                hid, num_units=3,
+                nonlinearity=softmax)
+
+    prediction = get_output(network)
+    
+    loss = T.mean(categorical_crossentropy(prediction,target_var))
+    lambda_val = 0.5 * 1e-4
+
+    layers = {conv2d_1:lambda_val, hid:lambda_val, network:lambda_val} 
+    penalty = regularize_layer_params_weighted(layers, l2)
+    loss = loss + penalty
+
+
+    params = get_all_params(network, trainable=True)
+
+    if args.optimizer == "sgd":
+        updates = sgd(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adagrad":
+        updates = adagrad(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adadelta":
+        updates = adadelta(loss, params, learning_rate=args.step)
+    elif args.optimizer == "nesterov":
+        updates = nesterov_momentum(loss, params, learning_rate=args.step)
+    elif args.optimizer == "rms":
+        updates = rmsprop(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adam":
+        updates = adam(loss, params, learning_rate=args.step)
+    else:
+        raise "Need set optimizer correctly"
+ 
+
+    test_prediction = get_output(network, deterministic=True)
+    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
+
+    """
+    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+        loss, updates=updates, allow_input_downcast=True)
+    """
+    train_fn = theano.function([input1_var, input2_var, target_var], 
+        loss, updates=updates, allow_input_downcast=True)
+
+    if args.task == "sts":
+        """
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_prediction], allow_input_downcast=True)
+        """
         val_fn = theano.function([input1_var, input2_var, target_var], 
             [test_loss, test_prediction], allow_input_downcast=True)
 
     elif args.task == "ent":
-        test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
 
+        """
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_acc], allow_input_downcast=True)
+        """
         val_fn = theano.function([input1_var, input2_var, target_var], 
             [test_loss, test_acc], allow_input_downcast=True)
 
@@ -352,7 +649,7 @@ if __name__ == '__main__':
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
-    train_fn, val_fn = build_network_ACL15(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
+    train_fn, val_fn = build_network_2dconv(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
         target_var, wordEmbeddings)
 
     print("Starting training...")
@@ -368,9 +665,11 @@ if __name__ == '__main__':
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
-                train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                #train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                train_err += train_fn(inputs1, inputs2, scores_pred)
             elif args.task == "ent":
-                train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
+                #train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
+                train_err += train_fn(inputs1, inputs2, labels)
             else:
                 raise "task need to be set"
 
@@ -388,7 +687,8 @@ if __name__ == '__main__':
 
             if args.task == "sts":
 
-                err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                #err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                err, preds = val_fn(inputs1, inputs2, scores_pred)
                 predictScores = preds.dot(np.array([1,2,3,4,5]))
                 guesses = predictScores.tolist()
                 scores = scores.tolist()
@@ -396,7 +696,8 @@ if __name__ == '__main__':
                 val_pearson += pearson_score 
 
             elif args.task == "ent":
-                err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
+                #err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
+                err, acc = val_fn(inputs1, inputs2, labels)
                 val_acc += acc
 
             val_err += err
@@ -435,7 +736,8 @@ if __name__ == '__main__':
 
         if args.task == "sts":
 
-            err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+            #err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+            err, preds = val_fn(inputs1, inputs2, scores_pred)
             predictScores = preds.dot(np.array([1,2,3,4,5]))
             guesses = predictScores.tolist()
             scores = scores.tolist()
@@ -443,7 +745,8 @@ if __name__ == '__main__':
             test_pearson += pearson_score 
 
         elif args.task == "ent":
-            err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
+            #err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
+            err, acc = val_fn(inputs1, inputs2, labels)
             test_acc += acc
 
 
