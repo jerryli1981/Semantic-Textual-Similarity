@@ -633,6 +633,115 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
 
     return train_fn, val_fn
 
+def build_network_MyModel(args, input1_var, input1_mask_var, 
+        input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
+
+    
+    print("Building model LSTM + Featue Model + 2D Convolution +MLP")
+
+    vocab_size = wordEmbeddings.shape[1]
+    wordDim = wordEmbeddings.shape[0]
+    GRAD_CLIP = wordDim
+
+    input_1 = InputLayer((None, maxlen),input_var=input1_var)
+    batchsize, seqlen = input_1.input_var.shape
+    input_1_mask = InputLayer((None, maxlen),input_var=input1_mask_var)
+    emb_1 = EmbeddingLayer(input_1, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_1.params[emb_1.W].remove('trainable')
+    lstm_1 = LSTMLayer(emb_1, num_units=args.lstmDim, mask_input=input_1_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh)
+
+    input_2 = InputLayer((None, maxlen),input_var=input2_var)
+    input_2_mask = InputLayer((None, maxlen),input_var=input2_mask_var)
+    emb_2 = EmbeddingLayer(input_2, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
+    emb_2.params[emb_2.W].remove('trainable')
+    lstm_2 = LSTMLayer(emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
+        nonlinearity=tanh) 
+ 
+
+    """
+    concat = ConcatLayer([lstm_1, lstm_2],axis=0) #(None, 36, 150)
+    print "XXX", get_output_shape(concat)
+
+    concat = ConcatLayer([lstm_1, lstm_2],axis=1) #(None, 72, 150)
+    print "XXX", get_output_shape(concat)
+    """
+
+    concat = ConcatLayer([lstm_1, lstm_2],axis=2) #(None, 36, 300)
+    #print "XXX", get_output_shape(concat)
+
+    num_filters = 200
+    stride = 1 
+    filter_size=(3, 2*args.lstmDim)
+    pool_size=(maxlen-3+1,1)
+
+    reshape = ReshapeLayer(concat, (batchsize, 1, maxlen, 2*args.lstmDim))
+    conv2d = Conv2DLayer(reshape, num_filters=num_filters, filter_size=filter_size, stride=stride,
+        nonlinearity=rectify,W=GlorotUniform())
+    maxpool = MaxPool2DLayer(conv2d, pool_size=pool_size)#(None, 100, 1, 1)
+
+    forward = FlattenLayer(maxpool) #(None, 72)
+    #print "XXX" , get_output_shape(forward) 
+
+    hid = DenseLayer(forward, num_units=args.hiddenDim, nonlinearity=sigmoid)
+
+    if args.task == "sts":
+        network = DenseLayer(
+                hid, num_units=5,
+                nonlinearity=softmax)
+
+    elif args.task == "ent":
+        network = DenseLayer(
+                hid, num_units=3,
+                nonlinearity=softmax)
+
+    prediction = get_output(network)
+    
+    loss = T.mean(categorical_crossentropy(prediction,target_var))
+    lambda_val = 0.5 * 1e-4
+
+    layers = {lstm_1:lambda_val, conv2d:lambda_val, hid:lambda_val, network:lambda_val} 
+    penalty = regularize_layer_params_weighted(layers, l2)
+    loss = loss + penalty
+
+
+    params = get_all_params(network, trainable=True)
+
+    if args.optimizer == "sgd":
+        updates = sgd(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adagrad":
+        updates = adagrad(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adadelta":
+        updates = adadelta(loss, params, learning_rate=args.step)
+    elif args.optimizer == "nesterov":
+        updates = nesterov_momentum(loss, params, learning_rate=args.step)
+    elif args.optimizer == "rms":
+        updates = rmsprop(loss, params, learning_rate=args.step)
+    elif args.optimizer == "adam":
+        updates = adam(loss, params, learning_rate=args.step)
+    else:
+        raise "Need set optimizer correctly"
+ 
+
+    test_prediction = get_output(network, deterministic=True)
+    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
+
+    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+        loss, updates=updates, allow_input_downcast=True)
+
+    if args.task == "sts":
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_prediction], allow_input_downcast=True)
+
+    elif args.task == "ent":
+        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
+        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
+
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+            [test_loss, test_acc], allow_input_downcast=True)
+
+    return train_fn, val_fn
+
 if __name__ == '__main__':
 
     import argparse
@@ -671,7 +780,7 @@ if __name__ == '__main__':
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
-    train_fn, val_fn = build_network_single_lstm(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
+    train_fn, val_fn = build_network_MyModel(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
         target_var, wordEmbeddings)
 
     print("Starting training...")
