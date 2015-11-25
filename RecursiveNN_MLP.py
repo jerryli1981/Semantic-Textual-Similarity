@@ -394,33 +394,24 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Usage")
 
     parser.add_argument("--minibatch",dest="minibatch",type=int,default=30)
-    parser.add_argument("--optimizer",dest="optimizer",type=str,default=None)
-    parser.add_argument("--epochs",dest="epochs",type=int,default=50)
-    parser.add_argument("--step",dest="step",type=float,default=1e-2)
-    parser.add_argument("--outputDim",dest="outputDim",type=int,default=5)
+    parser.add_argument("--optimizer",dest="optimizer",type=str,default="adagrad")
+    parser.add_argument("--epochs",dest="epochs",type=int,default=20)
+    parser.add_argument("--step",dest="step",type=float,default=0.01)
     parser.add_argument("--hiddenDim",dest="hiddenDim",type=int,default=50)
-    parser.add_argument("--wvecDim",dest="wvecDim",type=int,default=30)
-    parser.add_argument("--outFile",dest="outFile",type=str, default="models/test.bin")
-    parser.add_argument("--numProcess",dest="numProcess",type=int,default=None)
-    parser.add_argument("--repModel",dest="repModel",type=str,default="lstm")
-    parser.add_argument("--debug",dest="debug",type=str,default="False")
-    parser.add_argument("--useLearnedModel",dest="useLearnedModel",type=str,default="False")
+    parser.add_argument("--lstmDim",dest="lstmDim",type=int,default=30)
     args = parser.parse_args()
 
-    if args.debug == "True":
-        import pdb
-        pdb.set_trace()
-
-    # Load the dataset
+     # Load the dataset
     print("Loading data...")
-    import dependency_tree as tr     
-    trainTrees = tr.loadTrees("train")
-    devTrees = tr.loadTrees("dev")
-    testTrees = tr.loadTrees("test")
+    base_dir = os.path.dirname(os.path.realpath(__file__))
+    data_dir = os.path.join(base_dir, 'data')
+    sick_dir = os.path.join(data_dir, 'sick')
+
+    wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     
-    print "train number %d"%len(trainTrees)
-    print "dev number %d"%len(devTrees)
-    print "test number %d"%len(testTrees)
+    trainTrees = read_tree_dataset(sick_dir, "train")
+    devTrees = read_tree_dataset(sick_dir, "dev")
+    testTrees = read_tree_dataset(sick_dir, "test")
     
     X1_train, X2_train, Y_train, scores_train,input_shape = load_data(trainTrees, args)
     X1_dev, X2_dev, Y_dev, scores_dev,_ = load_data(devTrees, args)
