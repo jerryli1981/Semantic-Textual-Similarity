@@ -24,6 +24,13 @@ from lasagne.init import GlorotUniform
 
 from utils import read_sequence_dataset, iterate_minibatches,loadWord2VecMap
 
+#double_lstm 67%
+#single_lstm 64%
+#2dconv CNN_Sentence 63% 
+#lstm1dconv 62%
+#lstm2dconv 60%
+#Mymodel 35%
+
 def build_network_single_lstm(args, input1_var, input1_mask_var, 
         input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
 
@@ -70,59 +77,11 @@ def build_network_single_lstm(args, input1_var, input1_mask_var,
     elif args.task == "ent":
         network = DenseLayer(hid, num_units=3,nonlinearity=softmax)
 
-    prediction = get_output(network)
-    #loss = T.mean(target_var * ( T.log(target_var + 1e-30) - T.log(prediction) ))
-    loss = T.mean(categorical_crossentropy(prediction,target_var))
-    #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
-    #penalty = sum ( T.sum(lstm_param**2) for lstm_param in lstm_params )
-    #penalty = regularize_layer_params(l_forward_1_lstm, l2)
-    #penalty = T.sum(lstm_param**2 for lstm_param in lstm_params)
-    #penalty = 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(l_forward_1) )
     lambda_val = 0.5 * 1e-4
-
     layers = {lstm_1:lambda_val, hid:lambda_val, network:lambda_val} 
     penalty = regularize_layer_params_weighted(layers, l2)
-    loss = loss + penalty
 
-    params = get_all_params(network, trainable=True)
-
-    if args.optimizer == "sgd":
-        updates = sgd(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adagrad":
-        updates = adagrad(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adadelta":
-        updates = adadelta(loss, params, learning_rate=args.step)
-    elif args.optimizer == "nesterov":
-        updates = nesterov_momentum(loss, params, learning_rate=args.step)
-    elif args.optimizer == "rms":
-        updates = rmsprop(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adam":
-        updates = adam(loss, params, learning_rate=args.step)
-    else:
-        raise "Need set optimizer correctly"
- 
-    test_prediction = get_output(network, deterministic=True)
-    #test_loss = T.mean(categorical_crossentropy(test_prediction, target_var))
-    #test_loss = 0.2 * T.sum( target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction)))/ batchsize
-    #test_loss = T.mean(target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction) ))
-    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
-
-    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-        loss, updates=updates, allow_input_downcast=True)
-
-    if args.task == "sts":
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-            [test_loss, test_prediction], allow_input_downcast=True)
-
-    elif args.task == "ent":
-        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
-        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
-
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-            [test_loss, test_acc], allow_input_downcast=True)
-
-    return train_fn, val_fn
-
+    return network, penalty
 
 def build_network_double_lstm(args, input1_var, input1_mask_var, 
         input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
@@ -175,66 +134,17 @@ def build_network_double_lstm(args, input1_var, input1_mask_var,
 
     hid = DenseLayer(concat, num_units=args.hiddenDim, nonlinearity=sigmoid)
 
-
     if args.task == "sts":
         network = DenseLayer(hid, num_units=5,nonlinearity=softmax)
 
     elif args.task == "ent":
         network = DenseLayer(hid, num_units=3,nonlinearity=softmax)
 
-    prediction = get_output(network)
-    #loss = T.mean(target_var * ( T.log(target_var + 1e-30) - T.log(prediction) ))
-    loss = T.mean(categorical_crossentropy(prediction,target_var))
-    #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
-    #penalty = sum ( T.sum(lstm_param**2) for lstm_param in lstm_params )
-    #penalty = regularize_layer_params(l_forward_1_lstm, l2)
-    #penalty = T.sum(lstm_param**2 for lstm_param in lstm_params)
-    #penalty = 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(l_forward_1) )
     lambda_val = 0.5 * 1e-4
-
     layers = {lstm_1:lambda_val, hid:lambda_val, network:lambda_val} 
     penalty = regularize_layer_params_weighted(layers, l2)
-    loss = loss + penalty
 
-    params = get_all_params(network, trainable=True)
-
-    if args.optimizer == "sgd":
-        updates = sgd(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adagrad":
-        updates = adagrad(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adadelta":
-        updates = adadelta(loss, params, learning_rate=args.step)
-    elif args.optimizer == "nesterov":
-        updates = nesterov_momentum(loss, params, learning_rate=args.step)
-    elif args.optimizer == "rms":
-        updates = rmsprop(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adam":
-        updates = adam(loss, params, learning_rate=args.step)
-    else:
-        raise "Need set optimizer correctly"
- 
-    test_prediction = get_output(network, deterministic=True)
-    #test_loss = T.mean(categorical_crossentropy(test_prediction, target_var))
-    #test_loss = 0.2 * T.sum( target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction)))/ batchsize
-    #test_loss = T.mean(target_var * ( T.log(target_var+ 1e-16) - T.log(test_prediction) ))
-    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
-
-    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-        loss, updates=updates, allow_input_downcast=True)
-
-    if args.task == "sts":
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-            [test_loss, test_prediction], allow_input_downcast=True)
-
-    elif args.task == "ent":
-        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
-        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
-
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-            [test_loss, test_acc], allow_input_downcast=True)
-
-    return train_fn, val_fn
-
+    return network, penalty
 
 def build_network_lstm1dconv(args, input1_var, input1_mask_var, 
         input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
@@ -312,52 +222,11 @@ def build_network_lstm1dconv(args, input1_var, input1_mask_var,
                 hid, num_units=3,
                 nonlinearity=softmax)
 
-    prediction = get_output(network)
-    
-    loss = T.mean(categorical_crossentropy(prediction,target_var))
     lambda_val = 0.5 * 1e-4
-
     layers = {lstm_1:lambda_val, conv1d_1:lambda_val, hid:lambda_val, network:lambda_val} 
     penalty = regularize_layer_params_weighted(layers, l2)
-    loss = loss + penalty
 
-
-    params = get_all_params(network, trainable=True)
-
-    if args.optimizer == "sgd":
-        updates = sgd(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adagrad":
-        updates = adagrad(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adadelta":
-        updates = adadelta(loss, params, learning_rate=args.step)
-    elif args.optimizer == "nesterov":
-        updates = nesterov_momentum(loss, params, learning_rate=args.step)
-    elif args.optimizer == "rms":
-        updates = rmsprop(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adam":
-        updates = adam(loss, params, learning_rate=args.step)
-    else:
-        raise "Need set optimizer correctly"
- 
-
-    test_prediction = get_output(network, deterministic=True)
-    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
-
-    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-        loss, updates=updates, allow_input_downcast=True)
-
-    if args.task == "sts":
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-            [test_loss, test_prediction], allow_input_downcast=True)
-
-    elif args.task == "ent":
-        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
-        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
-
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-            [test_loss, test_acc], allow_input_downcast=True)
-
-    return train_fn, val_fn
+    return network, penalty
 
 def build_network_lstm2dconv(args, input1_var, input1_mask_var, 
         input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
@@ -445,52 +314,11 @@ def build_network_lstm2dconv(args, input1_var, input1_mask_var,
                 hid, num_units=3,
                 nonlinearity=softmax)
 
-    prediction = get_output(network)
-    
-    loss = T.mean(categorical_crossentropy(prediction,target_var))
     lambda_val = 0.5 * 1e-4
-
-    layers = {lstm_1:lambda_val, conv2d_1:lambda_val, hid:lambda_val, network:lambda_val} 
+    layers = {lstm_1:lambda_val, conv1d_1:lambda_val, hid:lambda_val, network:lambda_val} 
     penalty = regularize_layer_params_weighted(layers, l2)
-    loss = loss + penalty
 
-
-    params = get_all_params(network, trainable=True)
-
-    if args.optimizer == "sgd":
-        updates = sgd(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adagrad":
-        updates = adagrad(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adadelta":
-        updates = adadelta(loss, params, learning_rate=args.step)
-    elif args.optimizer == "nesterov":
-        updates = nesterov_momentum(loss, params, learning_rate=args.step)
-    elif args.optimizer == "rms":
-        updates = rmsprop(loss, params, learning_rate=args.step)
-    elif args.optimizer == "adam":
-        updates = adam(loss, params, learning_rate=args.step)
-    else:
-        raise "Need set optimizer correctly"
- 
-
-    test_prediction = get_output(network, deterministic=True)
-    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
-
-    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-        loss, updates=updates, allow_input_downcast=True)
-
-    if args.task == "sts":
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-            [test_loss, test_prediction], allow_input_downcast=True)
-
-    elif args.task == "ent":
-        #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
-        test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
-
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
-            [test_loss, test_acc], allow_input_downcast=True)
-
-    return train_fn, val_fn
+    return network, penalty
 
 def build_network_2dconv(args, input1_var, input1_mask_var, 
         input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
@@ -574,7 +402,7 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
                 hid, num_units=3,
                 nonlinearity=softmax)
 
-    prediction = get_output(network)
+    prediction = get_output(network, {input_1:input1_var, input_2:input2_var})
     
     loss = T.mean(categorical_crossentropy(prediction,target_var))
     lambda_val = 0.5 * 1e-4
@@ -665,8 +493,8 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
     concat = ConcatLayer([lstm_1, lstm_2],axis=1) #(None, 72, 150)
     """
 
-    lstm_1 = SliceLayer(lstm_1, indices=slice(-3, None), axis=1)
-    lstm_2 = SliceLayer(lstm_2, indices=slice(-3, None), axis=1)
+    lstm_1 = SliceLayer(lstm_1, indices=slice(-6, None), axis=1)
+    lstm_2 = SliceLayer(lstm_2, indices=slice(-6, None), axis=1)
 
     concat = ConcatLayer([lstm_1, lstm_2],axis=2) #(None, 36, 300)
 
@@ -677,10 +505,10 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
     pool_size=(4,4)
     """
 
-    filter_size=(3, 2 * args.lstmDim)
-    pool_size=(1,1)
+    filter_size=(3, 10)
+    pool_size=(2,2)
 
-    reshape = ReshapeLayer(concat, (batchsize, 1, 3, 2*args.lstmDim))
+    reshape = ReshapeLayer(concat, (batchsize, 1, 6, 2*args.lstmDim))
 
     conv2d = Conv2DLayer(reshape, num_filters=num_filters, filter_size=filter_size,
             nonlinearity=rectify,W=GlorotUniform())
@@ -710,15 +538,25 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
                 hid, num_units=3,
                 nonlinearity=softmax)
 
-    prediction = get_output(network)
-    
-    loss = T.mean(categorical_crossentropy(prediction,target_var))
     lambda_val = 0.5 * 1e-4
-
-    layers = {lstm_1:lambda_val, conv2d:lambda_val, hid:lambda_val, network:lambda_val} 
+    layers = {lstm_1:lambda_val, conv1d_1:lambda_val, hid:lambda_val, network:lambda_val} 
     penalty = regularize_layer_params_weighted(layers, l2)
-    loss = loss + penalty
 
+    return network, penalty
+
+    
+def generate_theano_func(args, network, penalty):
+
+    prediction = get_output(network)
+    #loss = T.mean(target_var * ( T.log(target_var + 1e-30) - T.log(prediction) ))
+    loss = T.mean(categorical_crossentropy(prediction,target_var))
+    #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
+    #penalty = sum ( T.sum(lstm_param**2) for lstm_param in lstm_params )
+    #penalty = regularize_layer_params(l_forward_1_lstm, l2)
+    #penalty = T.sum(lstm_param**2 for lstm_param in lstm_params)
+    #penalty = 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(l_forward_1) )
+
+    loss = loss + penalty
 
     params = get_all_params(network, trainable=True)
 
@@ -737,32 +575,29 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
     else:
         raise "Need set optimizer correctly"
  
-
     test_prediction = get_output(network, deterministic=True)
     test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
 
-    train_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+    train_fn = theano.function([input1_var, input1_mask_var, input2_var, input2_mask_var, target_var], 
         loss, updates=updates, allow_input_downcast=True)
 
     if args.task == "sts":
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, input2_mask_var, target_var], 
             [test_loss, test_prediction], allow_input_downcast=True)
 
     elif args.task == "ent":
         #test_acc = T.mean(T.eq(T.argmax(test_prediction, axis=1), target_var), dtype=theano.config.floatX)
         test_acc = T.mean(categorical_accuracy(test_prediction, target_var))
-
-        val_fn = theano.function([input1_var, input1_mask_var, input2_var, intut2_mask_var, target_var], 
+        val_fn = theano.function([input1_var, input1_mask_var, input2_var, input2_mask_var, target_var], 
             [test_loss, test_acc], allow_input_downcast=True)
 
     return train_fn, val_fn
 
+
 if __name__ == '__main__':
 
     import argparse
-
     parser = argparse.ArgumentParser(description="Usage")
-
     parser.add_argument("--minibatch",dest="minibatch",type=int,default=30)
     parser.add_argument("--optimizer",dest="optimizer",type=str,default="adagrad")
     parser.add_argument("--epochs",dest="epochs",type=int,default=20)
@@ -772,8 +607,6 @@ if __name__ == '__main__':
     parser.add_argument("--task",dest="task",type=str,default=None)
     args = parser.parse_args()
 
-
-    # Load the dataset
     print("Loading data...")
     base_dir = os.path.dirname(os.path.realpath(__file__))
     data_dir = os.path.join(base_dir, 'data')
@@ -795,8 +628,16 @@ if __name__ == '__main__':
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
-    train_fn, val_fn = build_network_MyModel(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
+    """
+    network, penalty= build_network_single_lstm(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
         target_var, wordEmbeddings)
+    train_fn, val_fn = generate_theano_func(args, network, penalty)
+    """
+
+    
+    train_fn, val_fn = build_network_2dconv(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
+        target_var, wordEmbeddings)
+    
 
     print("Starting training...")
     best_val_acc = 0
@@ -811,8 +652,8 @@ if __name__ == '__main__':
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
-                train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
-                #train_err += train_fn(inputs1, inputs2, scores_pred)
+                #train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                train_err += train_fn(inputs1, inputs2, scores_pred)
             elif args.task == "ent":
                 train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
                 #train_err += train_fn(inputs1, inputs2, labels)
@@ -833,13 +674,14 @@ if __name__ == '__main__':
 
             if args.task == "sts":
 
-                err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
-                #err, preds = val_fn(inputs1, inputs2, scores_pred)
+                #err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                err, preds = val_fn(inputs1, inputs2, scores_pred)
                 predictScores = preds.dot(np.array([1,2,3,4,5]))
                 guesses = predictScores.tolist()
                 scores = scores.tolist()
                 pearson_score = pearsonr(scores,guesses)[0]
                 val_pearson += pearson_score 
+
 
             elif args.task == "ent":
                 err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
@@ -847,15 +689,12 @@ if __name__ == '__main__':
                 val_acc += acc
 
             val_err += err
-            
             val_batches += 1
 
-            
         print("Epoch {} of {} took {:.3f}s".format(
             epoch + 1, args.epochs, time.time() - start_time))
         print("  training loss:\t\t{:.6f}".format(train_err / train_batches))
         print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
-
 
         if args.task == "sts":
             val_score = val_pearson / val_batches * 100
@@ -870,7 +709,6 @@ if __name__ == '__main__':
             if best_val_acc < val_score:
                 best_val_acc = val_score
 
-    # After training, we compute and print the test error:
     test_err = 0
     test_acc = 0
     test_pearson = 0
@@ -882,8 +720,8 @@ if __name__ == '__main__':
 
         if args.task == "sts":
 
-            err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
-            #err, preds = val_fn(inputs1, inputs2, scores_pred)
+            #err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+            err, preds = val_fn(inputs1, inputs2, scores_pred)
             predictScores = preds.dot(np.array([1,2,3,4,5]))
             guesses = predictScores.tolist()
             scores = scores.tolist()
@@ -895,11 +733,8 @@ if __name__ == '__main__':
             #err, acc = val_fn(inputs1, inputs2, labels)
             test_acc += acc
 
-
-        test_err += err
-        
+        test_err += err 
         test_batches += 1
-
 
     print("Final results:")
     print("  test loss:\t\t\t{:.6f}".format(test_err / test_batches))
@@ -912,13 +747,3 @@ if __name__ == '__main__':
         print("  Best validate accuracy:\t\t{:.2f} %".format(best_val_acc))
         print("  test accuracy:\t\t{:.2f} %".format(
             test_acc / test_batches * 100))
-
-
-
-    # Optionally, you could now dump the network weights to a file like this:
-    # np.savez('model.npz', *lasagne.layers.get_all_param_values(network))
-    #
-    # And load them again later on like this:
-    # with np.load('model.npz') as f:
-    #     param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    # lasagne.layers.set_all_param_values(network, param_values)
