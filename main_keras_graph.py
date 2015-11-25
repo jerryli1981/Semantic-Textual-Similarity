@@ -20,7 +20,7 @@ from keras.regularizers import l2,activity_l2
 
 from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset
 
-def build_network_graph(args, wordEmbeddings, maxlen=36, reg=1e-4):
+def build_network_graph(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
  
     print("Building graph model ...")
     vocab_size = wordEmbeddings.shape[1]
@@ -51,13 +51,12 @@ def build_network_graph(args, wordEmbeddings, maxlen=36, reg=1e-4):
     
     model.add_node(lstm_2, input='emb2', name='lstm2')
 
-    d1 = Dense(output_dim=args.hiddenDim, W_regularizer=l2(reg),b_regularizer=l2(reg))
-    model.add_node(d1, inputs=['lstm1', 'lstm2'], name='mul_merge', merge_mode='mul')
+    model.add_node(Activation('linear'), inputs=['lstm1', 'lstm2'], name='mul_merge', merge_mode='mul')
+    model.add_node(Activation('linear'), inputs=['lstm1', 'lstm2'], name='abs_merge', merge_mode='abs_sub')
 
-    d2 = Dense(output_dim=args.hiddenDim, W_regularizer=l2(reg),b_regularizer=l2(reg))
-    model.add_node(d2, inputs=['lstm1', 'lstm2'], name='abs_merge', merge_mode='abs_sub')
-
-    model.add_node(Activation('sigmoid'), inputs=['mul_merge', 'abs_merge'], name="sig", merge_mode='sum')
+    d = Dense(output_dim=args.hiddenDim, W_regularizer=l2(reg),b_regularizer=l2(reg))
+    model.add_node(d, inputs=['mul_merge', 'abs_merge'], name="concat", merge_mode='concat')
+    model.add_node(Activation('sigmoid'), input='concat', name='sig')
 
 
     if args.task=="sts":
