@@ -630,16 +630,16 @@ if __name__ == '__main__':
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
-    """
+    
     network, penalty= build_network_single_lstm(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
         target_var, wordEmbeddings)
     train_fn, val_fn = generate_theano_func(args, network, penalty)
-    """
 
-    
+
+    """
     train_fn, val_fn = build_network_2dconv(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
         target_var, wordEmbeddings)
-    
+    """
 
     print("Starting training...")
     best_val_acc = 0
@@ -654,8 +654,8 @@ if __name__ == '__main__':
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
-                #train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
-                train_err += train_fn(inputs1, inputs2, scores_pred)
+                train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                #train_err += train_fn(inputs1, inputs2, scores_pred)
             elif args.task == "ent":
                 train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
                 #train_err += train_fn(inputs1, inputs2, labels)
@@ -676,8 +676,8 @@ if __name__ == '__main__':
 
             if args.task == "sts":
 
-                #err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
-                err, preds = val_fn(inputs1, inputs2, scores_pred)
+                err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+                #err, preds = val_fn(inputs1, inputs2, scores_pred)
                 predictScores = preds.dot(np.array([1,2,3,4,5]))
                 guesses = predictScores.tolist()
                 scores = scores.tolist()
@@ -722,8 +722,8 @@ if __name__ == '__main__':
 
         if args.task == "sts":
 
-            #err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
-            err, preds = val_fn(inputs1, inputs2, scores_pred)
+            err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+            #err, preds = val_fn(inputs1, inputs2, scores_pred)
             predictScores = preds.dot(np.array([1,2,3,4,5]))
             guesses = predictScores.tolist()
             scores = scores.tolist()
