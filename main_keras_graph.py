@@ -22,7 +22,7 @@ from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset
 
 def build_network_graph(args, wordEmbeddings, maxlen=36, reg=1e-4):
  
-    print("Building model ...")
+    print("Building graph model ...")
     vocab_size = wordEmbeddings.shape[1]
     wordDim = wordEmbeddings.shape[0]
     batch_size = args.minibatch
@@ -89,98 +89,6 @@ def build_network_graph(args, wordEmbeddings, maxlen=36, reg=1e-4):
 
     return train_fn, val_fn, predict_proba
 
-def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
- 
-    print("Building model ...")
-    vocab_size = wordEmbeddings.shape[1]
-    wordDim = wordEmbeddings.shape[0]
-
-    l_lstm_1 = Sequential()
-    """
-    M_1 = Masking(mask_value=vocab_size-1)
-    M_1._input_shape = (maxlen, wordDim)
-    l_lstm_1.add(M_1)
-    """
-    l_lstm_1.add(Embedding(input_dim=vocab_size, output_dim=wordDim, 
-        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
-
-    #l_lstm_1.add(Embedding(input_dim=n_symbols, output_dim=300, input_length=maxlen))
-
-    l_lstm_1.add(LSTM(output_dim=args.lstmDim, return_sequences=False, 
-        input_shape=(maxlen, wordDim)))
-    l_lstm_1.add(Dropout(0.1))
-
-    l_lstm_1.layers[1].regularizers = [l2(reg)] * 12
-    for i in range(12):    
-        l_lstm_1.layers[1].regularizers[i].set_param(l_lstm_1.layers[1].get_params()[0][i])
-
-    l_lstm_2 = Sequential()
-
-    """
-    M_2 = Masking(mask_value=vocab_size-1)
-    M_2._input_shape = (maxlen, wordDim)
-    l_lstm_2.add(M_2)
-    """
-    
-    l_lstm_2.add(Embedding(input_dim=vocab_size, output_dim=wordDim, 
-        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen))
-    
-    #l_lstm_2.add(Embedding(input_dim=n_symbols, output_dim=300, input_length=maxlen))
-
-    l_lstm_2.add(LSTM(output_dim=args.lstmDim, return_sequences=False, 
-        input_shape=(maxlen, wordDim)))
-    l_lstm_2.add(Dropout(0.1))
-    
-    l_lstm_2.layers[1].regularizers = [l2(reg)] * 12
-    for i in range(12):    
-        l_lstm_2.layers[1].regularizers[i].set_param(l_lstm_2.layers[1].get_params()[0][i])
-    
-
-    l_mul = Sequential()
-    l_mul.add(Merge([l_lstm_1, l_lstm_2], mode='mul'))
-    #l_mul.add(Dense(output_dim=150,W_regularizer=l2(reg),b_regularizer=l2(reg)))
-
-    l_sub = Sequential()
-    l_sub.add(Merge([l_lstm_1, l_lstm_2], mode='abs_sub'))
-    #l_sub.add(Dense(output_dim=150,W_regularizer=l2(reg),b_regularizer=l2(reg)))
-
-    model = Sequential()
-    model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
-    model.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
-    #model.add(Merge([l_mul,l_sub], mode='sum'))
-
-    model.add(Activation('sigmoid'))
-
-    if args.task=="sts":
-        model.add(Dense(5,W_regularizer=l2(reg), b_regularizer=l2(reg)))
-    elif args.task == "ent":
-        model.add(Dense(3,W_regularizer=l2(reg), b_regularizer=l2(reg)))
-
-    model.add(Activation('softmax'))
-
-
-    if args.optimizer == "sgd":
-        optimizer = SGD(lr=args.step)
-    elif args.optimizer == "adagrad":
-        optimizer = Adagrad(lr=args.step)
-    elif args.optimizer == "adadelta":
-        optimizer = Adadelta(lr=args.step)
-    elif args.optimizer == "rms":
-        optimizer = RMSprop(lr=args.step)
-    elif args.optimizer == "adam":
-        optimizer = Adam(lr=args.step)
-    else:
-        raise "Need set optimizer correctly"
-
-    model.compile(loss='categorical_crossentropy', optimizer=optimizer)
-
-    train_fn = model.train_on_batch
-    val_fn = model.test_on_batch 
-    predict_proba = model.predict_proba
-
-    return train_fn, val_fn, predict_proba
-
-
 if __name__ == '__main__':
     
     import argparse
@@ -229,10 +137,9 @@ if __name__ == '__main__':
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
-                #train_err += train_fn([inputs1, inputs2], scores_pred)
                 train_err += train_fn({"input1":inputs1, "input2":inputs2, "softmax_out":scores_pred})
             elif args.task == "ent":
-                train_err += train_fn([inputs1, inputs2], labels)
+                train_err += train_fn({"input1":inputs1, "input2":inputs2, "softmax_out":labels})
             else:
                 raise "task need to be set"
 
@@ -249,11 +156,7 @@ if __name__ == '__main__':
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
-
-                #err = val_fn([inputs1, inputs2], scores_pred)
                 err = val_fn({"input1":inputs1, "input2":inputs2, "softmax_out":scores_pred})
-
-                #preds = predict_proba([inputs1, inputs2])
                 preds = predict_proba({"input1":inputs1, "input2":inputs2})
                 preds = preds['softmax_out']
                 predictScores = preds.dot(np.array([1,2,3,4,5]))
@@ -263,14 +166,12 @@ if __name__ == '__main__':
                 val_pearson += pearson_score 
 
             elif args.task == "ent":
-                err, acc = val_fn([inputs1, inputs2], labels, accuracy=True)
+                err, acc = val_fn({"input1":inputs1, "input2":inputs2, "softmax_out":labels}, accuracy=True)
                 val_acc += acc
 
-            val_err += err
-            
+            val_err += err      
             val_batches += 1
 
-            
         print("Epoch {} of {} took {:.3f}s".format(
             epoch + 1, args.epochs, time.time() - start_time))
         print("  training loss:\t\t{:.6f}".format(train_err / train_batches))
@@ -290,7 +191,6 @@ if __name__ == '__main__':
             if best_val_acc < val_score:
                 best_val_acc = val_score
 
-    # After training, we compute and print the test error:
     test_err = 0
     test_acc = 0
     test_pearson = 0
@@ -301,9 +201,7 @@ if __name__ == '__main__':
         inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
         if args.task == "sts":
-            #err = val_fn([inputs1, inputs2], scores_pred)
             err = val_fn({"input1":inputs1, "input2":inputs2, "softmax_out":scores_pred})
-            #preds = predict_proba([inputs1, inputs2])
             preds = predict_proba({"input1":inputs1, "input2":inputs2})
             preds = preds['softmax_out']
             predictScores = preds.dot(np.array([1,2,3,4,5]))
@@ -313,14 +211,11 @@ if __name__ == '__main__':
             test_pearson += pearson_score 
 
         elif args.task == "ent":
-            err, acc = val_fn([inputs1, inputs2], labels, accuracy=True)
+            err, acc = val_fn({"input1":inputs1, "input2":inputs2, "softmax_out":labels}, accuracy=True)
             test_acc += acc
 
-
         test_err += err
-        
         test_batches += 1
-
 
     print("Final results:")
     print("  test loss:\t\t\t{:.6f}".format(test_err / test_batches))
@@ -333,13 +228,3 @@ if __name__ == '__main__':
         print("  Best validate accuracy:\t\t{:.2f} %".format(best_val_acc))
         print("  test accuracy:\t\t{:.2f} %".format(
             test_acc / test_batches * 100))
-
-
-
-    # Optionally, you could now dump the network weights to a file like this:
-    # np.savez('model.npz', *lasagne.layers.get_all_param_values(network))
-    #
-    # And load them again later on like this:
-    # with np.load('model.npz') as f:
-    #     param_values = [f['arr_%d' % i] for i in range(len(f.files))]
-    # lasagne.layers.set_all_param_values(network, param_values)
