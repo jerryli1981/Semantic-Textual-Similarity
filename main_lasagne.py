@@ -81,7 +81,7 @@ def build_network_single_lstm(args, input1_var, input1_mask_var,
     layers = {lstm_1:lambda_val, hid:lambda_val, network:lambda_val} 
     penalty = regularize_layer_params_weighted(layers, l2)
 
-    return network, penalty
+    return network, penalty, input_1, input_2
 
 def build_network_double_lstm(args, input1_var, input1_mask_var, 
         input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
@@ -547,9 +547,11 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
     return network, penalty
 
     
-def generate_theano_func(args, network, penalty):
+def generate_theano_func(args, network, penalty, input_1, input_2, input1_var, input2_var):
 
-    prediction = get_output(network)
+    prediction = get_output(network, {input_1:input1_var, input_2:input2_var})
+    #prediction = get_output(network)
+
     #loss = T.mean(target_var * ( T.log(target_var + 1e-30) - T.log(prediction) ))
     loss = T.mean(categorical_crossentropy(prediction,target_var))
     #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
@@ -577,7 +579,8 @@ def generate_theano_func(args, network, penalty):
     else:
         raise "Need set optimizer correctly"
  
-    test_prediction = get_output(network, deterministic=True)
+    test_prediction = get_output(network, {input_1:input1_var, input_2:input2_var}, deterministic=True)
+    #test_prediction = get_output(network, deterministic=True)
     test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
 
     train_fn = theano.function([input1_var, input1_mask_var, input2_var, input2_mask_var, target_var], 
@@ -631,9 +634,10 @@ if __name__ == '__main__':
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
     
-    network, penalty= build_network_single_lstm(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
+    network, penalty, input_1, input_2= build_network_single_lstm(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
         target_var, wordEmbeddings)
-    train_fn, val_fn = generate_theano_func(args, network, penalty)
+
+    train_fn, val_fn = generate_theano_func(args, network, penalty, input_1, input_2, input1_var, input2_var)
 
 
     """
