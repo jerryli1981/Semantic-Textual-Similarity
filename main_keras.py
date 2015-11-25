@@ -12,13 +12,82 @@ sys.path.insert(0, os.path.abspath('../keras'))
 from keras.preprocessing import sequence
 from keras.optimizers import SGD, Adam, RMSprop, Adagrad, Adadelta
 from keras.utils import np_utils
-from keras.models import Sequential
+from keras.models import Sequential, Graph
 from keras.layers.core import Dense, Dropout, Activation, Merge, Flatten, Masking
 from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM, GRU
 from keras.regularizers import l2,activity_l2
 
 from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset
+
+def build_network_graph(args, wordEmbeddings, maxlen=36, reg=1e-4):
+ 
+    print("Building model ...")
+    vocab_size = wordEmbeddings.shape[1]
+    wordDim = wordEmbeddings.shape[0]
+    batch_size = args.minibatch
+
+    model = Graph()
+    model.add_input(name='input1', input_shape=(36,), dtype='int')
+    model.add_input(name='input2', input_shape=(36,), dtype='int')
+
+    model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
+        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen), input='input1', name='emb1')
+
+    lstm_1 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
+        input_shape=(maxlen, wordDim))
+
+    lstm_1.regularizers = [l2(reg)] * 12
+    for i in range(12):    
+        lstm_1.regularizers[i].set_param(lstm_1.get_params()[0][i])
+
+    model.add_node(lstm_1, input='emb1', name='lstm1')
+
+    model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
+        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen), input='input2', name='emb2')
+
+    lstm_2 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
+        input_shape=(maxlen, wordDim))
+    
+    model.add_node(lstm_2, input='emb2', name='lstm2')
+
+    d1 = Dense(output_dim=args.hiddenDim, W_regularizer=l2(reg),b_regularizer=l2(reg))
+    model.add_node(d1, inputs=['lstm1', 'lstm2'], name='mul_merge', merge_mode='mul')
+
+    d2 = Dense(output_dim=args.hiddenDim, W_regularizer=l2(reg),b_regularizer=l2(reg))
+    model.add_node(d2, inputs=['lstm1', 'lstm2'], name='abs_merge', merge_mode='abs_sub')
+
+    model.add_node(Activation('sigmoid'), inputs=['mul_merge', 'abs_merge'], name="sig", merge_mode='sum')
+
+
+    if args.task=="sts":
+        model.add_node(Dense(5,W_regularizer=l2(reg), b_regularizer=l2(reg)), input='sig', name='den')
+    elif args.task == "ent":
+        model.add_node(Dense(3,W_regularizer=l2(reg), b_regularizer=l2(reg)), input='sig', name='den')
+
+    model.add_node(Activation('softmax'), input='den', name='softmax')
+    model.add_output(name='softmax_out', input='softmax')
+
+    if args.optimizer == "sgd":
+        optimizer = SGD(lr=args.step)
+    elif args.optimizer == "adagrad":
+        optimizer = Adagrad(lr=args.step)
+    elif args.optimizer == "adadelta":
+        optimizer = Adadelta(lr=args.step)
+    elif args.optimizer == "rms":
+        optimizer = RMSprop(lr=args.step)
+    elif args.optimizer == "adam":
+        optimizer = Adam(lr=args.step)
+    else:
+        raise "Need set optimizer correctly"
+
+    model.compile(optimizer=optimizer, loss={'softmax_out':'categorical_crossentropy'})
+
+    train_fn = model.train_on_batch
+    val_fn = model.test_on_batch 
+    predict_proba = model.predict
+
+    return train_fn, val_fn, predict_proba
 
 def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
  
@@ -77,7 +146,7 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
 
     model = Sequential()
     model.add(Merge([l_mul, l_sub], mode='concat', concat_axis=-1))
-    model.add(Dense(output_dim=2*args.lstmDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
+    model.add(Dense(output_dim=args.hiddenDim,W_regularizer=l2(reg),b_regularizer=l2(reg)))
     #model.add(Merge([l_mul,l_sub], mode='sum'))
 
     model.add(Activation('sigmoid'))
@@ -145,7 +214,7 @@ if __name__ == '__main__':
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
-    train_fn, val_fn, predict_proba= build_network(args, wordEmbeddings)
+    train_fn, val_fn, predict_proba= build_network_graph(args, wordEmbeddings)
 
     print("Starting training...")
     best_val_acc = 0
@@ -160,7 +229,8 @@ if __name__ == '__main__':
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
             if args.task == "sts":
-                train_err += train_fn([inputs1, inputs2], scores_pred)
+                #train_err += train_fn([inputs1, inputs2], scores_pred)
+                train_err += train_fn({"input1":inputs1, "input2":inputs2, "softmax_out":scores_pred})
             elif args.task == "ent":
                 train_err += train_fn([inputs1, inputs2], labels)
             else:
@@ -180,8 +250,12 @@ if __name__ == '__main__':
 
             if args.task == "sts":
 
-                err = val_fn([inputs1, inputs2], scores_pred)
-                preds = predict_proba([inputs1, inputs2])
+                #err = val_fn([inputs1, inputs2], scores_pred)
+                err = val_fn({"input1":inputs1, "input2":inputs2, "softmax_out":scores_pred})
+
+                #preds = predict_proba([inputs1, inputs2])
+                preds = predict_proba({"input1":inputs1, "input2":inputs2})
+                preds = preds['softmax_out']
                 predictScores = preds.dot(np.array([1,2,3,4,5]))
                 guesses = predictScores.tolist()
                 scores = scores.tolist()
@@ -227,8 +301,11 @@ if __name__ == '__main__':
         inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
         if args.task == "sts":
-            err = val_fn([inputs1, inputs2], scores_pred)
-            preds = predict_proba([inputs1, inputs2])
+            #err = val_fn([inputs1, inputs2], scores_pred)
+            err = val_fn({"input1":inputs1, "input2":inputs2, "softmax_out":scores_pred})
+            #preds = predict_proba([inputs1, inputs2])
+            preds = predict_proba({"input1":inputs1, "input2":inputs2})
+            preds = preds['softmax_out']
             predictScores = preds.dot(np.array([1,2,3,4,5]))
             guesses = predictScores.tolist()
             scores = scores.tolist()
