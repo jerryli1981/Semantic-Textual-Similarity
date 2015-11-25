@@ -402,7 +402,8 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
                 hid, num_units=3,
                 nonlinearity=softmax)
 
-    prediction = get_output(network, {input_1:input1_var, input_2:input2_var})
+    #prediction = get_output(network, {input_1:input1_var, input_2:input2_var})
+    prediction = get_output(network)
     
     loss = T.mean(categorical_crossentropy(prediction,target_var))
     lambda_val = 0.5 * 1e-4
@@ -430,7 +431,8 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
         raise "Need set optimizer correctly"
  
 
-    test_prediction = get_output(network, {input_1:input1_var, input_2:input2_var}, deterministic=True)
+    #test_prediction = get_output(network, {input_1:input1_var, input_2:input2_var}, deterministic=True)
+    test_prediction = get_output(network, deterministic=True)
     test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
 
     """
