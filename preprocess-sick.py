@@ -101,6 +101,7 @@ def build_word2Vector(glove_path, sick_dir, vocab_name):
 
 
     word_embedding_matrix = np.zeros(shape=(300, len(vocab)))  
+
     
     import gzip
     wordSet = defaultdict(int)
