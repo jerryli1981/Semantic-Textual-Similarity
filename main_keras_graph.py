@@ -18,9 +18,10 @@ from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM, GRU
 from keras.regularizers import l2,activity_l2
 
-from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset
+from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset, read_sequence_dataset_embedding
 
-def build_network_graph(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
+
+def build_network_graph_embedding(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
  
     print("Building graph model ...")
     vocab_size = wordEmbeddings.shape[1]
@@ -28,8 +29,71 @@ def build_network_graph(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     batch_size = args.minibatch
 
     model = Graph()
-    model.add_input(name='input1', input_shape=(36,), dtype='int')
-    model.add_input(name='input2', input_shape=(36,), dtype='int')
+    model.add_input(name='input1', input_shape=(maxlen,wordDim), dtype='float')
+    model.add_input(name='input2', input_shape=(maxlen,wordDim), dtype='float')
+    
+    lstm_1 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
+        input_shape=(maxlen, wordDim))
+
+    lstm_1.regularizers = [l2(reg)] * 12
+    for i in range(12):    
+        lstm_1.regularizers[i].set_param(lstm_1.get_params()[0][i])
+
+    model.add_node(lstm_1, input='input1', name='lstm1')
+
+
+    lstm_2 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
+        input_shape=(maxlen, wordDim))
+    
+    model.add_node(lstm_2, input='input2', name='lstm2')
+
+    model.add_node(Activation('linear'), inputs=['lstm1', 'lstm2'], name='mul_merge', merge_mode='mul')
+    model.add_node(Activation('linear'), inputs=['lstm1', 'lstm2'], name='abs_merge', merge_mode='abs_sub')
+
+    d = Dense(output_dim=args.hiddenDim, W_regularizer=l2(reg),b_regularizer=l2(reg))
+    model.add_node(d, inputs=['mul_merge', 'abs_merge'], name="concat", merge_mode='concat')
+    model.add_node(Activation('sigmoid'), input='concat', name='sig')
+
+    if args.task=="sts":
+        model.add_node(Dense(5,W_regularizer=l2(reg), b_regularizer=l2(reg)), input='sig', name='den')
+    elif args.task == "ent":
+        model.add_node(Dense(3,W_regularizer=l2(reg), b_regularizer=l2(reg)), input='sig', name='den')
+
+    model.add_node(Activation('softmax'), input='den', name='softmax')
+    model.add_output(name='softmax_out', input='softmax')
+
+    if args.optimizer == "sgd":
+        optimizer = SGD(lr=args.step)
+    elif args.optimizer == "adagrad":
+        optimizer = Adagrad(lr=args.step)
+    elif args.optimizer == "adadelta":
+        optimizer = Adadelta(lr=args.step)
+    elif args.optimizer == "rms":
+        optimizer = RMSprop(lr=args.step)
+    elif args.optimizer == "adam":
+        optimizer = Adam(lr=args.step)
+    else:
+        raise "Need set optimizer correctly"
+
+    model.compile(optimizer=optimizer, loss={'softmax_out':'kl_divergence'})
+
+    train_fn = model.train_on_batch
+    val_fn = model.test_on_batch 
+    predict_proba = model.predict
+
+    return train_fn, val_fn, predict_proba
+
+
+def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
+ 
+    print("Building graph model ...")
+    vocab_size = wordEmbeddings.shape[1]
+    wordDim = wordEmbeddings.shape[0]
+    batch_size = args.minibatch
+
+    model = Graph()
+    model.add_input(name='input1', input_shape=(maxlen,), dtype='int')
+    model.add_input(name='input2', input_shape=(maxlen,), dtype='int')
 
     model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen), input='input1', name='emb1')
@@ -57,7 +121,6 @@ def build_network_graph(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     d = Dense(output_dim=args.hiddenDim, W_regularizer=l2(reg),b_regularizer=l2(reg))
     model.add_node(d, inputs=['mul_merge', 'abs_merge'], name="concat", merge_mode='concat')
     model.add_node(Activation('sigmoid'), input='concat', name='sig')
-
 
     if args.task=="sts":
         model.add_node(Dense(5,W_regularizer=l2(reg), b_regularizer=l2(reg)), input='sig', name='den')
@@ -112,16 +175,16 @@ if __name__ == '__main__':
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     
     X1_train, X1_mask_train, X2_train, X2_mask_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = \
-        read_sequence_dataset(sick_dir, "train")
+        read_sequence_dataset_embedding(sick_dir, "train", wordEmbeddings)
     X1_dev, X1_mask_dev, X2_dev, X2_mask_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = \
-        read_sequence_dataset(sick_dir, "dev")
+        read_sequence_dataset_embedding(sick_dir, "dev", wordEmbeddings)
     X1_test, X1_mask_test, X2_test, X2_mask_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = \
-        read_sequence_dataset(sick_dir, "test")
+        read_sequence_dataset_embedding(sick_dir, "test", wordEmbeddings)
 
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
-    train_fn, val_fn, predict_proba= build_network_graph(args, wordEmbeddings)
+    train_fn, val_fn, predict_proba= build_network_graph_embedding(args, wordEmbeddings)
 
     print("Starting training...")
     best_val_acc = 0

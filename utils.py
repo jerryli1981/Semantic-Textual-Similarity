@@ -145,6 +145,95 @@ def loadWord2VecMap(word2vec_path):
     with open(word2vec_path,'r') as fid:
         return pickle.load(fid)
 
+#this method special for main_keras_graph builde with embedding
+def read_sequence_dataset_embedding(dataset_dir, dataset_name, wordEmbeddings, maxlen=36):
+
+    labelIdx_m = {"NEUTRAL":2, "ENTAILMENT":1, "CONTRADICTION":0}
+
+    a_s = os.path.join(dataset_dir, dataset_name+"/a.toks")
+    b_s = os.path.join(dataset_dir, dataset_name+"/b.toks")
+    sims = os.path.join(dataset_dir, dataset_name+"/sim.txt")
+    labs = os.path.join(dataset_dir, dataset_name+"/label.txt") 
+
+    data_size = len([line.rstrip('\n') for line in open(a_s)])
+
+    Y_scores_pred = np.zeros((data_size, 6), dtype=np.float32)    
+    Y_scores = np.zeros((data_size), dtype=np.float32) 
+    labels = []
+
+    X1 = np.zeros((data_size, maxlen, 300), dtype=np.int16)
+    X2 = np.zeros((data_size, maxlen, 300), dtype=np.int16)
+
+    X1_mask = np.zeros((data_size, maxlen), dtype=np.int16)
+    X2_mask = np.zeros((data_size, maxlen), dtype=np.int16)
+
+    from collections import defaultdict
+    words = defaultdict(int)
+
+    vocab_path = os.path.join(dataset_dir, 'vocab-cased.txt')
+
+    with open(vocab_path, 'r') as f:
+        for tok in f:
+            words[tok.rstrip('\n')] += 1
+
+    vocab = {}
+    vocab["<UNK>"] = 0
+    for word, idx in zip(words.iterkeys(), xrange(1, len(words)+1)):
+        vocab[word] = idx
+
+    with open(a_s, "rb") as f1, \
+         open(b_s, "rb") as f2, \
+         open(sims, "rb") as f3, \
+         open(labs, 'rb') as f4:
+                        
+        for i, (a, b, sim, ent) in enumerate(zip(f1,f2,f3,f4)):
+
+            a = a.rstrip('\n')
+            b = b.rstrip('\n')
+            sim = float(sim.rstrip('\n'))
+            ent = ent.rstrip('\n')
+
+            ceil = np.ceil(sim)
+            floor = np.floor(sim)
+            if ceil == floor:
+                Y_scores_pred[i, floor] = 1
+            else:
+                Y_scores_pred[i, floor] = ceil-sim
+                Y_scores_pred[i, ceil] = sim-floor
+
+            label = labelIdx_m[ent]
+            Y_scores[i] = 0.25 * (sim -1)
+            labels.append(label)
+
+            toks_a = a.split()
+            toks_b = b.split()
+
+            for j in range(maxlen):
+                if j < maxlen - len(toks_a):
+                    X1[i,j] = wordEmbeddings[:,vocab["<UNK>"]]
+                    X1_mask[i, j] = 0
+                else:
+                    idx = vocab[toks_a[j-maxlen+len(toks_a)]]
+                    X1[i, j] = wordEmbeddings[:,idx]
+                    X1_mask[i, j] = 1
+
+                    
+            for j in range(maxlen):
+                if j < maxlen - len(toks_b):
+                    X2[i,j] = wordEmbeddings[:,vocab["<UNK>"]]
+                    X2_mask[i, j] = 0
+                else:
+                    idx = vocab[toks_b[j-maxlen+len(toks_b)]]
+                    X2[i,j] = wordEmbeddings[:,idx]
+                    X2_mask[i, j] = 1
+      
+    Y_scores_pred = Y_scores_pred[:, 1:]
+    Y_labels = np.zeros((len(labels), 3))
+    for i in range(len(labels)):
+        Y_labels[i, labels[i]] = 1.
+
+    return X1, X1_mask, X2, X2_mask, Y_labels, Y_scores, Y_scores_pred
+
 def read_sequence_dataset(dataset_dir, dataset_name, maxlen=36):
 
     labelIdx_m = {"NEUTRAL":2, "ENTAILMENT":1, "CONTRADICTION":0}
