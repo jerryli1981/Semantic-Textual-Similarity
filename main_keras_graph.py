@@ -98,7 +98,7 @@ def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen, 
         W_regularizer=l2(0.01*reg)), input='input1', name='emb1')
 
-    lstm_1 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
+    lstm_1 = LSTM(output_dim=args.lstmDim, return_sequences=False, inner_activation="tanh",
         input_shape=(maxlen, wordDim))
 
     lstm_1.regularizers = [l2(reg)] * 12
@@ -110,7 +110,7 @@ def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen), input='input2', name='emb2')
 
-    lstm_2 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
+    lstm_2 = LSTM(output_dim=args.lstmDim, return_sequences=False, inner_activation="tanh",
         input_shape=(maxlen, wordDim))
     
     model.add_node(lstm_2, input='emb2', name='lstm2')
