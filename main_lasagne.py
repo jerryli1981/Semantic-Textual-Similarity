@@ -17,7 +17,7 @@ from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer,
 
 from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params,\
                                     regularize_network_params
-from lasagne.nonlinearities import tanh, sigmoid, softmax, rectify
+from lasagne.nonlinearities import tanh, sigmoid, softmax, rectify, logsoftmax
 from lasagne.objectives import categorical_crossentropy, squared_error, categorical_accuracy
 from lasagne.updates import sgd, adagrad, adadelta, nesterov_momentum, rmsprop, adam
 from lasagne.init import GlorotUniform
@@ -32,7 +32,7 @@ from utils import read_sequence_dataset, iterate_minibatches,loadWord2VecMap
 #Mymodel 35%
 
 def build_network_single_lstm(args, input1_var, input1_mask_var, 
-        input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
+        input2_var, intut2_mask_var, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
 
     print("Building model with single lstm")
 
@@ -43,20 +43,19 @@ def build_network_single_lstm(args, input1_var, input1_mask_var,
     batchsize, seqlen = input_1.input_var.shape
     input_1_mask = InputLayer((None, maxlen),input_var=input1_mask_var)
     emb_1 = EmbeddingLayer(input_1, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
-    emb_1.params[emb_1.W].remove('trainable')
+    #emb_1.params[emb_1.W].remove('trainable')
 
     lstm_1 = LSTMLayer(
         emb_1, num_units=args.lstmDim, mask_input=input_1_mask, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh)
 
-    
     slice_1 = SliceLayer(lstm_1, indices=-1, axis=1) # out_shape (None, args.lstmDim)
 
 
     input_2 = InputLayer((None, maxlen),input_var=input2_var)
     input_2_mask = InputLayer((None, maxlen),input_var=input2_mask_var)
     emb_2 = EmbeddingLayer(input_2, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
-    emb_2.params[emb_2.W].remove('trainable')
+    #emb_2.params[emb_2.W].remove('trainable')
 
     lstm_2 = LSTMLayer(
         emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
@@ -72,16 +71,17 @@ def build_network_single_lstm(args, input1_var, input1_mask_var,
 
 
     if args.task == "sts":
-        network = DenseLayer(hid, num_units=5,nonlinearity=softmax)
+        network = DenseLayer(hid, num_units=5,nonlinearity=logsoftmax)
 
     elif args.task == "ent":
-        network = DenseLayer(hid, num_units=3,nonlinearity=softmax)
+        network = DenseLayer(hid, num_units=3,nonlinearity=logsoftmax)
 
-    lambda_val = 0.5 * 1e-4
-    layers = {lstm_1:lambda_val, hid:lambda_val, network:lambda_val} 
+    layers = {lstm_1:reg, hid:reg, network:reg} 
     penalty = regularize_layer_params_weighted(layers, l2)
 
-    return network, penalty, input_1, input_2
+    input_dict = {input_1:input1_var, input_2:input2_var, input_1_mask:input1_mask_var, input_2_mask:input2_mask_var}
+
+    return network, penalty, input_dict
 
 def build_network_double_lstm(args, input1_var, input1_mask_var, 
         input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
@@ -547,13 +547,12 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
     return network, penalty
 
     
-def generate_theano_func(args, network, penalty, input_1, input_2, input1_var, input2_var, epsilon = 1.0e-7):
+def generate_theano_func(args, network, penalty, input_dict, target_var):
 
-    prediction = get_output(network, {input_1:input1_var, input_2:input2_var})
-    #prediction = get_output(network)
+    prediction = get_output(network, input_dict)
 
-    target_var = T.clip(target_var, epsilon, 1.0 - epsilon)
-    loss = T.mean( target_var * ( T.log(target_var) - T.log(prediction) ))
+    loss = T.mean( target_var * ( T.log(target_var) - prediction ))
+
     #loss = T.mean(categorical_crossentropy(prediction,target_var))
     #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
     #penalty = sum ( T.sum(lstm_param**2) for lstm_param in lstm_params )
@@ -580,9 +579,10 @@ def generate_theano_func(args, network, penalty, input_1, input_2, input1_var, i
     else:
         raise "Need set optimizer correctly"
  
-    test_prediction = get_output(network, {input_1:input1_var, input_2:input2_var}, deterministic=True)
+    test_prediction = get_output(network, input_dict, deterministic=True)
     #test_prediction = get_output(network, deterministic=True)
-    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
+    test_loss = T.mean( target_var * ( T.log(target_var) - test_prediction))
+    #test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
 
     train_fn = theano.function([input1_var, input1_mask_var, input2_var, input2_mask_var, target_var], 
         loss, updates=updates, allow_input_downcast=True)
@@ -635,17 +635,17 @@ if __name__ == '__main__':
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
     
-    network, penalty, input_1, input_2= build_network_single_lstm(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
-        target_var, wordEmbeddings)
+    network, penalty, input_dict= build_network_single_lstm(args, input1_var, 
+        input1_mask_var, input2_var, input2_mask_var, wordEmbeddings)
 
-    train_fn, val_fn = generate_theano_func(args, network, penalty, input_1, input_2, input1_var, input2_var)
+    train_fn, val_fn = generate_theano_func(args, network, penalty, input_dict, target_var)
 
 
     """
     train_fn, val_fn = build_network_2dconv(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
         target_var, wordEmbeddings)
     """
-
+    epsilon = 1.0e-7
     print("Starting training...")
     best_val_acc = 0
     best_val_pearson = 0
@@ -657,6 +657,8 @@ if __name__ == '__main__':
             Y_scores_train, Y_scores_pred_train, args.minibatch, shuffle=True):
 
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
+
+            scores_pred = np.clip(scores_pred, epsilon, 1.0 - epsilon)
 
             if args.task == "sts":
                 train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
@@ -679,10 +681,13 @@ if __name__ == '__main__':
 
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
+            scores_pred = np.clip(scores_pred, epsilon, 1.0 - epsilon)
+
             if args.task == "sts":
 
                 err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
                 #err, preds = val_fn(inputs1, inputs2, scores_pred)
+                preds = np.exp(preds)
                 predictScores = preds.dot(np.array([1,2,3,4,5]))
                 guesses = predictScores.tolist()
                 scores = scores.tolist()
@@ -725,9 +730,12 @@ if __name__ == '__main__':
 
         inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
+        scores_pred = np.clip(scores_pred, epsilon, 1.0 - epsilon)
+
         if args.task == "sts":
 
             err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
+            preds = np.exp(preds)
             #err, preds = val_fn(inputs1, inputs2, scores_pred)
             predictScores = preds.dot(np.array([1,2,3,4,5]))
             guesses = predictScores.tolist()
