@@ -80,7 +80,7 @@ def build_network_graph(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     else:
         raise "Need set optimizer correctly"
 
-    model.compile(optimizer=optimizer, loss={'softmax_out':'categorical_crossentropy'})
+    model.compile(optimizer=optimizer, loss={'softmax_out':'kl_divergence'})
 
     train_fn = model.train_on_batch
     val_fn = model.test_on_batch 
