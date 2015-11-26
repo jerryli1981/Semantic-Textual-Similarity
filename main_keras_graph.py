@@ -16,7 +16,7 @@ from keras.models import Sequential, Graph
 from keras.layers.core import Dense, Dropout, Activation, Merge, Flatten, Masking
 from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM, GRU
-from keras.regularizers import l2,activity_l2
+from keras.regularizers import l2,l1,activity_l2
 
 from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset, read_sequence_dataset_embedding
 
@@ -96,7 +96,7 @@ def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
 
     model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
         mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen, 
-        W_regularizer=l2(0.005*reg)), input='input1', name='emb1')
+        W_regularizer=l2(0.01*reg)), input='input1', name='emb1')
 
     lstm_1 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
         input_shape=(maxlen, wordDim))
@@ -108,8 +108,7 @@ def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     model.add_node(lstm_1, input='emb1', name='lstm1')
 
     model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
-        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen, 
-        W_regularizer=l2(0.005*reg)), input='input2', name='emb2')
+        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen), input='input2', name='emb2')
 
     lstm_2 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
         input_shape=(maxlen, wordDim))
