@@ -20,7 +20,6 @@ from keras.regularizers import l2,activity_l2
 
 from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset, read_sequence_dataset_embedding
 
-
 def build_network_graph_embedding(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
  
     print("Building graph model with embeddings...")
@@ -59,7 +58,7 @@ def build_network_graph_embedding(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4)
     elif args.task == "ent":
         model.add_node(Dense(3,W_regularizer=l2(reg), b_regularizer=l2(reg)), input='sig', name='den')
 
-    model.add_node(Activation('softmax'), input='den', name='softmax')
+    model.add_node(Activation('logsoftmax'), input='den', name='softmax')
     model.add_output(name='softmax_out', input='softmax')
 
     if args.optimizer == "sgd":
@@ -75,7 +74,7 @@ def build_network_graph_embedding(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4)
     else:
         raise "Need set optimizer correctly"
 
-    model.compile(optimizer=optimizer, loss={'softmax_out':'kl_divergence'})
+    model.compile(optimizer=optimizer, loss={'softmax_out':'kl_divergence_log'})
 
     train_fn = model.train_on_batch
     val_fn = model.test_on_batch 
@@ -127,7 +126,7 @@ def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     elif args.task == "ent":
         model.add_node(Dense(3,W_regularizer=l2(reg), b_regularizer=l2(reg)), input='sig', name='den')
 
-    model.add_node(Activation('softmax'), input='den', name='softmax')
+    model.add_node(Activation('logsoftmax'), input='den', name='softmax')
     model.add_output(name='softmax_out', input='softmax')
 
     if args.optimizer == "sgd":
@@ -143,7 +142,7 @@ def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     else:
         raise "Need set optimizer correctly"
 
-    model.compile(optimizer=optimizer, loss={'softmax_out':'kl_divergence'})
+    model.compile(optimizer=optimizer, loss={'softmax_out':'kl_divergence_log'})
 
     train_fn = model.train_on_batch
     val_fn = model.test_on_batch 
@@ -171,9 +170,10 @@ if __name__ == '__main__':
     base_dir = os.path.dirname(os.path.realpath(__file__))
     data_dir = os.path.join(base_dir, 'data')
     sick_dir = os.path.join(data_dir, 'sick')
-
-    wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     
+    """
+    wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
+
     X1_train, X1_mask_train, X2_train, X2_mask_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = \
         read_sequence_dataset_embedding(sick_dir, "train", wordEmbeddings)
     X1_dev, X1_mask_dev, X2_dev, X2_mask_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = \
@@ -181,10 +181,26 @@ if __name__ == '__main__':
     X1_test, X1_mask_test, X2_test, X2_mask_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = \
         read_sequence_dataset_embedding(sick_dir, "test", wordEmbeddings)
 
-    wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
     train_fn, val_fn, predict_proba= build_network_graph_embedding(args, wordEmbeddings)
+    """
+
+    wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
+
+    X1_train, X1_mask_train, X2_train, X2_mask_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = \
+        read_sequence_dataset(sick_dir, "train")
+    X1_dev, X1_mask_dev, X2_dev, X2_mask_dev, Y_labels_dev, Y_scores_dev, Y_scores_pred_dev = \
+        read_sequence_dataset(sick_dir, "dev")
+    X1_test, X1_mask_test, X2_test, X2_mask_test, Y_labels_test, Y_scores_test, Y_scores_pred_test = \
+        read_sequence_dataset(sick_dir, "test")
+
+    
+    wordEmbeddings = wordEmbeddings.astype(np.float32)
+
+    train_fn, val_fn, predict_proba= build_network_graph_index(args, wordEmbeddings)
+
+
 
     print("Starting training...")
     best_val_acc = 0
@@ -221,6 +237,7 @@ if __name__ == '__main__':
                 err = val_fn({"input1":inputs1, "input2":inputs2, "softmax_out":scores_pred})
                 preds = predict_proba({"input1":inputs1, "input2":inputs2})
                 preds = preds['softmax_out']
+                preds = np.exp(preds)
                 predictScores = preds.dot(np.array([1,2,3,4,5]))
                 guesses = predictScores.tolist()
                 scores = scores.tolist()
