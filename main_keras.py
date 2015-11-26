@@ -20,7 +20,7 @@ from keras.regularizers import l2,activity_l2
 
 from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset
 
-def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
+def build_network(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
  
     print("Building sequential model ...")
     vocab_size = wordEmbeddings.shape[1]
@@ -103,7 +103,7 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=1e-4):
     else:
         raise "Need set optimizer correctly"
 
-    model.compile(loss='categorical_crossentropy', optimizer=optimizer)
+    model.compile(loss='kl_divergence', optimizer=optimizer)
 
     train_fn = model.train_on_batch
     val_fn = model.test_on_batch 
