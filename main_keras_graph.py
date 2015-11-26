@@ -95,7 +95,8 @@ def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     model.add_input(name='input2', input_shape=(maxlen,), dtype='int')
 
     model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
-        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen), input='input1', name='emb1')
+        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen, 
+        W_regularizer=l2(0.005*reg)), input='input1', name='emb1')
 
     lstm_1 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
         input_shape=(maxlen, wordDim))
@@ -107,7 +108,8 @@ def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     model.add_node(lstm_1, input='emb1', name='lstm1')
 
     model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
-        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen), input='input2', name='emb2')
+        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen, 
+        W_regularizer=l2(0.005*reg)), input='input2', name='emb2')
 
     lstm_2 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
         input_shape=(maxlen, wordDim))
@@ -186,6 +188,7 @@ if __name__ == '__main__':
     train_fn, val_fn, predict_proba= build_network_graph_embedding(args, wordEmbeddings)
     """
 
+    
     wordEmbeddings = loadWord2VecMap(os.path.join(sick_dir, 'word2vec.bin'))
 
     X1_train, X1_mask_train, X2_train, X2_mask_train, Y_labels_train, Y_scores_train, Y_scores_pred_train = \
@@ -199,7 +202,7 @@ if __name__ == '__main__':
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
     train_fn, val_fn, predict_proba= build_network_graph_index(args, wordEmbeddings)
-
+    
 
 
     print("Starting training...")
