@@ -547,13 +547,14 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
     return network, penalty
 
     
-def generate_theano_func(args, network, penalty, input_1, input_2, input1_var, input2_var):
+def generate_theano_func(args, network, penalty, input_1, input_2, input1_var, input2_var, epsilon = 1.0e-7):
 
     prediction = get_output(network, {input_1:input1_var, input_2:input2_var})
     #prediction = get_output(network)
 
-    #loss = T.mean(target_var * ( T.log(target_var + 1e-30) - T.log(prediction) ))
-    loss = T.mean(categorical_crossentropy(prediction,target_var))
+    target_var = T.clip(target_var, epsilon, 1.0 - epsilon)
+    loss = T.mean( target_var * ( T.log(target_var) - T.log(prediction) ))
+    #loss = T.mean(categorical_crossentropy(prediction,target_var))
     #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
     #penalty = sum ( T.sum(lstm_param**2) for lstm_param in lstm_params )
     #penalty = regularize_layer_params(l_forward_1_lstm, l2)
