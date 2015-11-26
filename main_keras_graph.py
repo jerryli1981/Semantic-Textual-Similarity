@@ -23,7 +23,7 @@ from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset, r
 
 def build_network_graph_embedding(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
  
-    print("Building graph model ...")
+    print("Building graph model with embeddings...")
     vocab_size = wordEmbeddings.shape[1]
     wordDim = wordEmbeddings.shape[0]
     batch_size = args.minibatch
@@ -86,7 +86,7 @@ def build_network_graph_embedding(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4)
 
 def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
  
-    print("Building graph model ...")
+    print("Building graph model with indexes...")
     vocab_size = wordEmbeddings.shape[1]
     wordDim = wordEmbeddings.shape[0]
     batch_size = args.minibatch
