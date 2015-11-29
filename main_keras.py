@@ -103,7 +103,7 @@ def build_network(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     else:
         raise "Need set optimizer correctly"
 
-    model.compile(loss='kl_divergence', optimizer=optimizer)
+    model.compile(loss='categorical_crossentropy', optimizer=optimizer)
 
     train_fn = model.train_on_batch
     val_fn = model.test_on_batch 
