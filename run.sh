@@ -7,12 +7,15 @@ set -x
 
 # training params
 epochs=50
-step=0.001
+step=0.01
 hiddenDim=50
 lstmDim=150
 miniBatch=25
-optimizer=adam #adagrad 0.05, adam 0.001, rms 0.01, adadelta 1 is bad on lstm, but step 3 is good on cnn
+optimizer=rms
+#adagrad 0.05, adam 0.001, rms 0.01, adadelta 1 is bad on lstm, but step 3 is good on cnn
 #adam 0.001 is better on cnn than adadelta and rms, adam converge faster than adadelta
+#rms 0.01 is bttter on main_keras_graph
+#adam 0.001 is bettern on main_lasagne
 
 export THEANO_FLAGS=mode=FAST_RUN,device=$1,floatX=float32
 

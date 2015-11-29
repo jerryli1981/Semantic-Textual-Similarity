@@ -43,7 +43,7 @@ def build_network_single_lstm(args, input1_var, input1_mask_var,
     batchsize, seqlen = input_1.input_var.shape
     input_1_mask = InputLayer((None, maxlen),input_var=input1_mask_var)
     emb_1 = EmbeddingLayer(input_1, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
-    #emb_1.params[emb_1.W].remove('trainable')
+    emb_1.params[emb_1.W].remove('trainable')
 
     lstm_1 = LSTMLayer(
         emb_1, num_units=args.lstmDim, mask_input=input_1_mask, grad_clipping=GRAD_CLIP,
@@ -55,7 +55,7 @@ def build_network_single_lstm(args, input1_var, input1_mask_var,
     input_2 = InputLayer((None, maxlen),input_var=input2_var)
     input_2_mask = InputLayer((None, maxlen),input_var=input2_mask_var)
     emb_2 = EmbeddingLayer(input_2, input_size=vocab_size, output_size=wordDim, W=wordEmbeddings.T)
-    #emb_2.params[emb_2.W].remove('trainable')
+    emb_2.params[emb_2.W].remove('trainable')
 
     lstm_2 = LSTMLayer(
         emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
