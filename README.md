@@ -4,7 +4,8 @@ This is an Theano impelmentation of Tree-LSTM for Semantic Textual Similarity(ST
 
 Tree-LSTM is implemented by Torch. More details can be found at https://github.com/stanfordnlp/treelstm .
 
-I would like to compare Torch and Theano for specific task. I try three solutions
+I would like to compare Torch and Theano for specific task. Therefore, I made this translation. I try three solutions 
+listed below,
 
 1) main_lasagne.py is using Lasagne https://github.com/Lasagne/Lasagne.git
 
