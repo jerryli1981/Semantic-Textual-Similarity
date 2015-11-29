@@ -11,7 +11,7 @@ listed below,
 
 2) main_keras.py is using keras https://github.com/fchollet/keras.git
 
-3) main_theano.py is pure theano implementation
+3) main_theano.py is pure theano implementation with dependency tree structure LSTM
 
 
 Known issue: both three solutions just get 70% pearson correlation which is so far away from 84% reported in their paper.
