@@ -7,7 +7,9 @@ Tree-LSTM is implemented by Torch. I would like to compare Torch with Theano.
 I try three solutions
 
 1) main_lasagne.py is using Lasagne https://github.com/Lasagne/Lasagne.git
+
 2) main_keras.py is using keras https://github.com/fchollet/keras.git
+
 3) main_theano.py is pure theano implementation
 
 Note that, it is hard to implement dynamic tree stucture LSTM via theano. So I leverage sequence LSTM that already
