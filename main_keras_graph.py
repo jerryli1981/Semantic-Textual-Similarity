@@ -13,9 +13,9 @@ from keras.preprocessing import sequence
 from keras.optimizers import SGD, Adam, RMSprop, Adagrad, Adadelta
 from keras.utils import np_utils
 from keras.models import Sequential, Graph
-from keras.layers.core import Dense, Dropout, Activation, Merge, Flatten, Masking
+from keras.layers.core import Dense, Dropout, Activation, Merge, Flatten, Masking, TimeDistributedMerge
 from keras.layers.embeddings import Embedding
-from keras.layers.recurrent import LSTM, GRU
+from keras.layers.recurrent import LSTM, GRU, JZS1, JZS2
 from keras.regularizers import l2,l1,activity_l2
 
 from utils import loadWord2VecMap, iterate_minibatches, read_sequence_dataset, read_sequence_dataset_embedding
@@ -95,28 +95,30 @@ def build_network_graph_index(args, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
     model.add_input(name='input2', input_shape=(maxlen,), dtype='int')
 
     model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
-        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen, 
+        mask_zero=False, weights=[wordEmbeddings.T],input_length=maxlen, 
         W_regularizer=l2(0.01*reg)), input='input1', name='emb1')
 
-    lstm_1 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
+    lstm_1 = LSTM(output_dim=args.lstmDim, return_sequences=True, 
         input_shape=(maxlen, wordDim))
 
-    lstm_1.regularizers = [l2(reg)] * 12
+    lstm_1.regularizers = [l2(reg)] * 12 #GRU has 9 params, LSTM has 12 params
     for i in range(12):    
         lstm_1.regularizers[i].set_param(lstm_1.get_params()[0][i])
 
     model.add_node(lstm_1, input='emb1', name='lstm1')
+    model.add_node(TimeDistributedMerge(mode='ave'), input='lstm1', name='lstm1_m')
 
     model.add_node(Embedding(input_dim=vocab_size, output_dim=wordDim, 
-        mask_zero=True, weights=[wordEmbeddings.T],input_length=maxlen), input='input2', name='emb2')
+        mask_zero=False, weights=[wordEmbeddings.T],input_length=maxlen), input='input2', name='emb2')
 
-    lstm_2 = LSTM(output_dim=args.lstmDim, return_sequences=False, 
+    lstm_2 = LSTM(output_dim=args.lstmDim, return_sequences=True, 
         input_shape=(maxlen, wordDim))
     
     model.add_node(lstm_2, input='emb2', name='lstm2')
+    #model.add_node(TimeDistributedMerge(mode='ave'), input='lstm2', name='lstm2_m')
 
-    model.add_node(Activation('linear'), inputs=['lstm1', 'lstm2'], name='mul_merge', merge_mode='mul')
-    model.add_node(Activation('linear'), inputs=['lstm1', 'lstm2'], name='abs_merge', merge_mode='abs_sub')
+    model.add_node(Activation('linear'), inputs=['lstm1_m', 'lstm2_m'], name='mul_merge', merge_mode='mul')
+    model.add_node(Activation('linear'), inputs=['lstm1_m', 'lstm2_m'], name='abs_merge', merge_mode='abs_sub')
 
     d = Dense(output_dim=args.hiddenDim, W_regularizer=l2(reg),b_regularizer=l2(reg))
     model.add_node(d, inputs=['mul_merge', 'abs_merge'], name="concat", merge_mode='concat')
@@ -202,8 +204,6 @@ if __name__ == '__main__':
 
     train_fn, val_fn, predict_proba= build_network_graph_index(args, wordEmbeddings)
     
-
-
     print("Starting training...")
     best_val_acc = 0
     best_val_pearson = 0
