@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath('../Lasagne'))
 from lasagne.layers import InputLayer, LSTMLayer, NonlinearityLayer, SliceLayer, FlattenLayer, EmbeddingLayer,\
     ElemwiseMergeLayer, ReshapeLayer, get_output, get_all_params, get_output_shape, DropoutLayer,\
     DenseLayer,ElemwiseSumLayer,Conv2DLayer, Conv1DLayer, CustomRecurrentLayer, AbsSubLayer,\
-    ConcatLayer, Pool1DLayer, FeaturePoolLayer,count_params,MaxPool2DLayer,MaxPool1DLayer
+    ConcatLayer, Pool1DLayer, FeaturePoolLayer,count_params,MaxPool2DLayer,MaxPool1DLayer,CosineSimLayer
 
 from lasagne.regularization import regularize_layer_params_weighted, l2, l1,regularize_layer_params,\
                                     regularize_network_params
@@ -22,7 +22,7 @@ from lasagne.objectives import categorical_crossentropy, squared_error, categori
 from lasagne.updates import sgd, adagrad, adadelta, nesterov_momentum, rmsprop, adam
 from lasagne.init import GlorotUniform
 
-from utils import read_sequence_dataset, iterate_minibatches,loadWord2VecMap
+from utils import read_sequence_dataset, iterate_minibatches,loadWord2VecMap,cosine
 
 #double_lstm 67%
 #single_lstm 64%
@@ -84,7 +84,7 @@ def build_network_single_lstm(args, input1_var, input1_mask_var,
     return network, penalty, input_dict
 
 def build_network_double_lstm(args, input1_var, input1_mask_var, 
-        input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
+        input2_var, intut2_mask_var, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
 
     print("Building model with double lstm")
 
@@ -140,11 +140,12 @@ def build_network_double_lstm(args, input1_var, input1_mask_var,
     elif args.task == "ent":
         network = DenseLayer(hid, num_units=3,nonlinearity=softmax)
 
-    lambda_val = 0.5 * 1e-4
-    layers = {lstm_1:lambda_val, hid:lambda_val, network:lambda_val} 
+    layers = {lstm_1:reg, hid:reg, network:reg} 
     penalty = regularize_layer_params_weighted(layers, l2)
 
-    return network, penalty
+    input_dict = {input_1:input1_var, input_2:input2_var, input_1_mask:input1_mask_var, input_2_mask:input2_mask_var}
+
+    return network, penalty, input_dict
 
 def build_network_lstm1dconv(args, input1_var, input1_mask_var, 
         input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
@@ -463,10 +464,12 @@ def build_network_2dconv(args, input1_var, input1_mask_var,
 
     return train_fn, val_fn
 
-def build_network_MyModel(args, input1_var, input1_mask_var, 
-        input2_var, intut2_mask_var, target_var, wordEmbeddings, maxlen=36):
 
-    
+
+def build_network_MyModel(args, input1_var, input1_mask_var, 
+        input2_var, intut2_mask_var, wordEmbeddings, maxlen=36, reg=0.5*1e-4):
+
+    #need use theano.scan 
     print("Building model LSTM + Featue Model + 2D Convolution +MLP")
 
     vocab_size = wordEmbeddings.shape[1]
@@ -487,18 +490,17 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
     emb_2.params[emb_2.W].remove('trainable')
     lstm_2 = LSTMLayer(emb_2, num_units=args.lstmDim, mask_input=input_2_mask, grad_clipping=GRAD_CLIP,
         nonlinearity=tanh) 
- 
+
+    #print "LSTM shape", get_output_shape(lstm_2) # LSTM shape (None, 36, 150)
+    cos_feats = CosineSimLayer([lstm_1, lstm_2])
+    print "SSSS", get_output_shape(cos_feats)
+
+    #lstm_1 = SliceLayer(lstm_1, indices=slice(-6, None), axis=1)
+    #lstm_2 = SliceLayer(lstm_2, indices=slice(-6, None), axis=1)
+
+    #concat = ConcatLayer([lstm_1, lstm_2],axis=2) #(None, 36, 300)
 
     """
-    concat = ConcatLayer([lstm_1, lstm_2],axis=0) #(None, 36, 150)
-
-    concat = ConcatLayer([lstm_1, lstm_2],axis=1) #(None, 72, 150)
-    """
-
-    lstm_1 = SliceLayer(lstm_1, indices=slice(-6, None), axis=1)
-    lstm_2 = SliceLayer(lstm_2, indices=slice(-6, None), axis=1)
-
-    concat = ConcatLayer([lstm_1, lstm_2],axis=2) #(None, 36, 300)
 
     num_filters = 32
     stride = 1 
@@ -520,40 +522,34 @@ def build_network_MyModel(args, input1_var, input1_mask_var,
 
     """
     # Another convolution with 32 5x5 kernels, and another 2x2 pooling:
-    conv2d = Conv2DLayer(maxpool, num_filters=32, filter_size=(5, 5),
-            nonlinearity=rectify)
-    maxpool = MaxPool2DLayer(conv2d, pool_size=(2, 2))
+    #conv2d = Conv2DLayer(maxpool, num_filters=32, filter_size=(5, 5), nonlinearity=rectify)
+    #maxpool = MaxPool2DLayer(conv2d, pool_size=(2, 2))
 
-    """
+
     # A fully-connected layer of 256 units with 50% dropout on its inputs:
-    hid = DenseLayer(DropoutLayer(maxpool, p=.2),num_units=128,nonlinearity=rectify)
+    #hid = DenseLayer(DropoutLayer(maxpool, p=.2),num_units=128,nonlinearity=rectify)
+    hid = DenseLayer(cos_feats,num_units=10,nonlinearity=sigmoid)
 
-
-    # And, finally, the 10-unit output layer with 50% dropout on its inputs:
     if args.task == "sts":
-        network = DenseLayer(
-                hid, num_units=5,
-                nonlinearity=softmax)
+        network = DenseLayer(hid, num_units=5,nonlinearity=logsoftmax)
 
     elif args.task == "ent":
-        network = DenseLayer(
-                hid, num_units=3,
-                nonlinearity=softmax)
+        network = DenseLayer(hid, num_units=3,nonlinearity=logsoftmax)
 
-    lambda_val = 0.5 * 1e-4
-    layers = {lstm_1:lambda_val, conv1d_1:lambda_val, hid:lambda_val, network:lambda_val} 
+    layers = {lstm_1:reg, hid:reg, network:reg} 
     penalty = regularize_layer_params_weighted(layers, l2)
 
-    return network, penalty
+    input_dict = {input_1:input1_var, input_2:input2_var, input_1_mask:input1_mask_var, input_2_mask:input2_mask_var}
+
+    return network, penalty, input_dict
 
     
 def generate_theano_func(args, network, penalty, input_dict, target_var):
 
     prediction = get_output(network, input_dict)
 
-    loss = T.mean( target_var * ( T.log(target_var) - prediction ))
-
-    #loss = T.mean(categorical_crossentropy(prediction,target_var))
+    #loss = T.mean( target_var * ( T.log(target_var) - prediction ))
+    loss = T.mean(categorical_crossentropy(prediction, target_var))
     #loss += 0.0001 * sum (T.sum(layer_params ** 2) for layer_params in get_all_params(network) )
     #penalty = sum ( T.sum(lstm_param**2) for lstm_param in lstm_params )
     #penalty = regularize_layer_params(l_forward_1_lstm, l2)
@@ -581,8 +577,8 @@ def generate_theano_func(args, network, penalty, input_dict, target_var):
  
     test_prediction = get_output(network, input_dict, deterministic=True)
     #test_prediction = get_output(network, deterministic=True)
-    test_loss = T.mean( target_var * ( T.log(target_var) - test_prediction))
-    #test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
+    #test_loss = T.mean( target_var * ( T.log(target_var) - test_prediction))
+    test_loss = T.mean(categorical_crossentropy(test_prediction,target_var))
 
     train_fn = theano.function([input1_var, input1_mask_var, input2_var, input2_mask_var, target_var], 
         loss, updates=updates, allow_input_downcast=True)
@@ -635,11 +631,10 @@ if __name__ == '__main__':
     wordEmbeddings = wordEmbeddings.astype(np.float32)
 
     
-    network, penalty, input_dict= build_network_single_lstm(args, input1_var, 
+    network, penalty, input_dict= build_network_double_lstm(args, input1_var, 
         input1_mask_var, input2_var, input2_mask_var, wordEmbeddings)
 
     train_fn, val_fn = generate_theano_func(args, network, penalty, input_dict, target_var)
-
 
     """
     train_fn, val_fn = build_network_2dconv(args, input1_var, input1_mask_var, input2_var, input2_mask_var,
@@ -658,12 +653,12 @@ if __name__ == '__main__':
 
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
-            scores_pred = np.clip(scores_pred, epsilon, 1.0 - epsilon)
-
             if args.task == "sts":
+                scores_pred = np.clip(scores_pred, epsilon, 1.0 - epsilon)
                 train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
                 #train_err += train_fn(inputs1, inputs2, scores_pred)
             elif args.task == "ent":
+                #labels = np.clip(labels, epsilon, 1.0 - epsilon)
                 train_err += train_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
                 #train_err += train_fn(inputs1, inputs2, labels)
             else:
@@ -681,10 +676,8 @@ if __name__ == '__main__':
 
             inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
-            scores_pred = np.clip(scores_pred, epsilon, 1.0 - epsilon)
-
             if args.task == "sts":
-
+                scores_pred = np.clip(scores_pred, epsilon, 1.0 - epsilon)
                 err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
                 #err, preds = val_fn(inputs1, inputs2, scores_pred)
                 preds = np.exp(preds)
@@ -696,6 +689,7 @@ if __name__ == '__main__':
 
 
             elif args.task == "ent":
+                #labels = np.clip(labels, epsilon, 1.0 - epsilon)
                 err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
                 #err, acc = val_fn(inputs1, inputs2, labels)
                 val_acc += acc
@@ -730,10 +724,8 @@ if __name__ == '__main__':
 
         inputs1, inputs1_mask, inputs2, inputs2_mask, labels, scores, scores_pred = batch
 
-        scores_pred = np.clip(scores_pred, epsilon, 1.0 - epsilon)
-
         if args.task == "sts":
-
+            scores_pred = np.clip(scores_pred, epsilon, 1.0 - epsilon)
             err, preds = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, scores_pred)
             preds = np.exp(preds)
             #err, preds = val_fn(inputs1, inputs2, scores_pred)
@@ -744,6 +736,7 @@ if __name__ == '__main__':
             test_pearson += pearson_score 
 
         elif args.task == "ent":
+            #labels = np.clip(labels, epsilon, 1.0 - epsilon)
             err, acc = val_fn(inputs1, inputs1_mask, inputs2, inputs2_mask, labels)
             #err, acc = val_fn(inputs1, inputs2, labels)
             test_acc += acc
