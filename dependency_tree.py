@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from nltk.corpus import wordnet as wn
 
 class Relation:
@@ -62,9 +63,13 @@ class DTree:
        
                 govTok = self.nodes[govIdx-1].word           
                 depTok = self.nodes[depIdx-1].word
+
                 
-                govMatch = isMatch(govTok, govTok_d)
-                depMatch = isMatch(depTok, depTok_d)
+                govMatch = isMatch(govTok, govTok_d, synonym = True, entail = True, 
+                    antonym = True, hypernym = True, hyponym = True)
+
+                depMatch = isMatch(depTok, depTok_d, synonym = True, entail = True, 
+                    antonym = True, hypernym = True, hyponym = True)
                 
                 if govMatch and not depMatch:
                     add = True
@@ -99,7 +104,7 @@ def isMatch(T, H, synonym = False, entail = False, antonym = False, hypernym = F
     is_hypernym = False
     is_hyponym = False
     
-    if synonym == True:
+    if synonym :
         
         lemmas_T = [str(lemma.name()) for ss in synsets_T for lemma in ss.lemmas()]
         lemmas_H = [str(lemma.name()) for ss in synsets_H for lemma in ss.lemmas()]
@@ -111,20 +116,20 @@ def isMatch(T, H, synonym = False, entail = False, antonym = False, hypernym = F
         else:
             is_synonym = False
 
-    elif entail == True:
+    if entail :
         
         for s_T in synsets_T:
             for s_H in synsets_H:
                 if s_H in s_T.entailments():
                     is_entail = True 
 
-    elif antonym == True:
+    if antonym :
        
         nega_T = [str(nega.name()) for ss in synsets_T for lemma in ss.lemmas() for nega in lemma.antonyms()]
         if H in nega_T:
             is_antonmy = True
 
-    elif hypernym == True:
+    if hypernym :
             
         for s_T in synsets_T:
             for s_H in synsets_H:
@@ -135,7 +140,7 @@ def isMatch(T, H, synonym = False, entail = False, antonym = False, hypernym = F
                 if s_T in [synset for path in s_H.hypernym_paths() for synset in path]:
                     is_hypernym = True           
 
-    elif hyponym == True:
+    if hyponym :
       
         for s_T in synsets_T:
             for s_H in synsets_H:

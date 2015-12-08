@@ -1,3 +1,4 @@
+
 import numpy as np
 import os
 import theano.tensor as T
@@ -480,6 +481,7 @@ def merge_tree_dataset(data_dir, name):
     b_r = os.path.join(data_dir, name+"/b.rels")
 
     m_p = os.path.join(data_dir, name+"/m.parents")
+    m_s = os.path.join(data_dir, name+"/m.toks")
 
     data_size = len([line.rstrip('\n') for line in open(a_s)])
 
@@ -512,15 +514,14 @@ def merge_tree_dataset(data_dir, name):
 
     rel_vocab = dict(zip(rels.iterkeys(),xrange(len(rels))))
 
-
-
     with open(a_s, 'rb') as f1, \
          open(b_s, 'rb') as f2, \
          open(a_p, 'rb') as f5, \
          open(b_p, 'rb') as f6, \
          open(a_r, 'rb') as f7, \
          open(b_r, 'rb') as f8,\
-         open(m_p, 'wb') as f9:              
+         open(m_p, 'wb') as f9,\
+         open(m_s, 'wb') as f10:             
 
         for i, (a, b, a_p, b_p, a_r, b_r) in enumerate(zip(f1,f2,f5,f6,f7,f8)):
 
@@ -546,7 +547,7 @@ def merge_tree_dataset(data_dir, name):
             is_dag = nx.is_directed_acyclic_graph(G)
 
             if is_dag:
-
+                print i
                 node_size = len(dep_tree_a.nodes)
                 parents = [-1] * node_size
                 for govIdx, depIdx in dep_tree_a.dependencies:
@@ -554,6 +555,11 @@ def merge_tree_dataset(data_dir, name):
 
                 assert node_size == len(dep_tree_a.dependencies)
                 f9.write(' '.join(parents) + '\n')
+
+                m_toks = []
+                for n in dep_tree_a.nodes:
+                    m_toks.append(n.word)
+                f10.write(' '.join(m_toks) + '\n')
             else:
                 print 'is not dag'
 
