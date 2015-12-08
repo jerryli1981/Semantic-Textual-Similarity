@@ -2,6 +2,8 @@ import numpy as np
 import os
 import theano.tensor as T
 
+import networkx as nx
+
 import theano
 
 
@@ -467,6 +469,93 @@ def read_tree_dataset(data_dir, name, rangeScores=5, numLabels=3, maxlen=36):
 
     return l_trees, r_trees, Y_labels, Y_scores, Y_scores_pred
 
+def merge_tree_dataset(data_dir, name):
+
+    a_s = os.path.join(data_dir, name+"/a.toks")
+    b_s = os.path.join(data_dir, name+"/b.toks")
+
+    a_p = os.path.join(data_dir, name+"/a.parents")
+    b_p = os.path.join(data_dir, name+"/b.parents")
+    a_r = os.path.join(data_dir, name+"/a.rels")
+    b_r = os.path.join(data_dir, name+"/b.rels")
+
+    m_p = os.path.join(data_dir, name+"/m.parents")
+
+    data_size = len([line.rstrip('\n') for line in open(a_s)])
+
+    l_trees = []
+    r_trees = []
+
+    from collections import defaultdict
+    words = defaultdict(int)
+
+    from dependency_tree import DTree
+
+    vocab_path = os.path.join(data_dir, 'vocab-cased.txt')
+
+    with open(vocab_path, 'r') as f:
+        for tok in f:
+            words[tok.rstrip('\n')] += 1
+
+    vocab = {}
+    vocab["<UNK>"] = 0
+    for word, idx in zip(words.iterkeys(), xrange(1, len(words)+1)):
+        vocab[word] = idx
+
+    rel_vocab_path = os.path.join(data_dir, 'rel_vocab.txt')
+
+    rels = defaultdict(int)
+
+    with open(rel_vocab_path, 'r') as f:
+        for tok in f:
+            rels[tok.rstrip('\n')] += 1
+
+    rel_vocab = dict(zip(rels.iterkeys(),xrange(len(rels))))
+
+
+
+    with open(a_s, 'rb') as f1, \
+         open(b_s, 'rb') as f2, \
+         open(a_p, 'rb') as f5, \
+         open(b_p, 'rb') as f6, \
+         open(a_r, 'rb') as f7, \
+         open(b_r, 'rb') as f8,\
+         open(m_p, 'wb') as f9:              
+
+        for i, (a, b, a_p, b_p, a_r, b_r) in enumerate(zip(f1,f2,f5,f6,f7,f8)):
+
+            a = a.rstrip('\n')
+            b = b.rstrip('\n')
+
+            toks_a = a.split()
+            toks_b = b.split()
+
+            a_p_l = a_p.rstrip('\n').split()
+            b_p_l = b_p.rstrip('\n').split()
+            a_r_l = a_r.rstrip('\n').split()
+            b_r_l = b_r.rstrip('\n').split()
+
+            dep_tree_a = DTree(toks_a, a_p_l, a_r_l,vocab,rel_vocab)
+            dep_tree_b = DTree(toks_b, b_p_l, b_r_l,vocab,rel_vocab)
+
+            dep_tree_a.mergeWith(dep_tree_b)
+
+            G = nx.DiGraph()
+            G.add_edges_from(dep_tree_a.dependencies)
+
+            is_dag = nx.is_directed_acyclic_graph(G)
+
+            if is_dag:
+
+                node_size = len(dep_tree_a.nodes)
+                parents = [-1] * node_size
+                for govIdx, depIdx in dep_tree_a.dependencies:
+                    parents[depIdx - 1] = str(govIdx)
+
+                assert node_size == len(dep_tree_a.dependencies)
+                f9.write(' '.join(parents) + '\n')
+            else:
+                print 'is not dag'
 
 if __name__ == '__main__':
 
@@ -474,7 +563,9 @@ if __name__ == '__main__':
     data_dir = os.path.join(base_dir, 'data')
     sick_dir = os.path.join(data_dir, 'sick')
 
-    read_dataset_tree(sick_dir, "train")
-    read_dataset_tree(sick_dir, "dev")
-    read_dataset_tree(sick_dir, "test")
+    merge_tree_dataset(sick_dir, "train")
+    merge_tree_dataset(sick_dir, "dev")
+    merge_tree_dataset(sick_dir, "test")
+    print 'done'
+
 
