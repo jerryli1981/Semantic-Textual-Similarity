@@ -135,7 +135,7 @@ if __name__ == '__main__':
     base_dir = os.path.dirname(os.path.realpath(__file__))
     data_dir = os.path.join(base_dir, 'data')
     sick_dir = os.path.join(data_dir, 'sick')
-    lib_dir = os.path.join(base_dir, 'lib')
+    lib_dir = os.path.join("/Users/peng/Develops/NLP-Tools", 'stanford_nlp_lib')
     train_dir = os.path.join(sick_dir, 'train')
     dev_dir = os.path.join(sick_dir, 'dev')
     test_dir = os.path.join(sick_dir, 'test')
